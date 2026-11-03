@@ -25,7 +25,7 @@ Ten tools, 23 recipes, 25 feature ops. Blender is optional.
 ## Install
 
 ```bash
-git clone https://github.com/laszapens/atta.git atta && cd atta
+git clone https://github.com/laszapens/Atta.git atta && cd atta
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```

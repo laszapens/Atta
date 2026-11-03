@@ -23,7 +23,7 @@ agent 不需要从截图里猜形状，也能在说"做完了"之前证明它是
 ## 安装
 
 ```bash
-git clone https://github.com/laszapens/atta.git atta && cd atta
+git clone https://github.com/laszapens/Atta.git atta && cd atta
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
