@@ -31,7 +31,7 @@ state:
 ATTA_HOME=/tmp/atta-test python3 -m pytest -q
 ```
 
-The full suite takes about three minutes, mostly in the two solver tests.
+The full suite takes about four minutes, mostly in the two solver tests.
 
 ## Where to change what
 
@@ -179,7 +179,7 @@ python3 -m atta --json model --spec '{"schema":"atta.spec/v3","name":"w",
 
 ## Tests
 
-- `python3 -m pytest` — everything. About 215 tests, ~3 min.
+- `python3 -m pytest` — everything. 278 tests, about 4 minutes.
 - `python3 -m pytest tests/test_families.py tests/test_coverage_gate.py -q` —
   the two shape gates; run these first after adding a recipe.
 - `python3 -m pytest tests/test_preview_visual.py -q` — needs Blender.

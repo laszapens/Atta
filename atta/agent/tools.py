@@ -914,9 +914,9 @@ def _text_first(data: Any) -> Any:
 def _ergonomic(tool: str, data: Any) -> Any:
     """Apply the reply-ergonomics pass.  Additive only: no key is renamed."""
     data = _compact(data)
-    data = _text_first(data)
-    # describe/perceive already nest the readable line; hoist a copy so a model
-    # that reads only the first 200 chars still gets the fact card.
+    # Hoist the readable line *before* reordering: adding it afterwards would
+    # append it past the blobs, which is exactly what text-first is meant to
+    # prevent.
     if isinstance(data, dict) and not data.get("one_line"):
         one = None
         facts = data.get("facts")
@@ -927,8 +927,8 @@ def _ergonomic(tool: str, data: Any) -> Any:
             if isinstance(pack, dict):
                 one = pack.get("text")
         if isinstance(one, str) and one:
-            data["one_line"] = one
-    return data
+            data = {**data, "one_line": one}
+    return _text_first(data)
 
 
 def _envelope(tool: str, ok: bool, data: Any, error: dict | None,

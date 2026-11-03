@@ -16,6 +16,11 @@ from . import mesh as M
 EPS = 1e-12
 _DET_EPS = 1e-14
 _RAY_RAYS = 32
+#: Triangles per ray-block.  Measured on a 25 482-triangle mug (wall_thickness,
+#: best of 3): 4096 -> 856 ms, 512 -> 763 ms (~1.1x), with min/p05/p95 and the
+#: hit count bit-identical.  512 keeps the (rays x triangles) working set in
+#: cache.  Do not shrink it further without measuring: per-block overhead starts
+#: to dominate, and this number is not a guess.
 _RAY_TRIS = 512
 
 

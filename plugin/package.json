@@ -65,7 +65,8 @@
   "//sideEffects": "The entry registers nothing at import time except resolving the host API (wrapped so it cannot throw); all registration happens in apply(ctx). Marking it side-effect-free would let a bundler drop the module.",
   "sideEffects": true,
   "license": "MIT",
-  "private": true,
+  "//private": "false: this ships open-source and installs from the checkout (or a git ref) as a DSH bundle. Before publishing to npm, change \"name\" to a scope you actually own — @atta/ is a placeholder — and keep this false, otherwise npm publish is silently refused.",
+  "private": false,
   "author": {
     "name": "Atta contributors"
   },
