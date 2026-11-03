@@ -1,0 +1,10 @@
+{
+  "name": "atta",
+  "version": "1.1.0",
+  "description": "Atta v1.1 — LLM-native parametric modeling: recipes, Spec v3 graphs, assemblies, measured facts, three-state verify, constrained solve, studio/diagnostic preview, GLB/OBJ/STL/STEP delivery.",
+  "author": {
+    "name": "Atta"
+  },
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json"
+}

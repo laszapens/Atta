@@ -1,0 +1,39 @@
+{
+  "name": "@atta/dsh-atta",
+  "version": "1.1.0",
+  "description": "Atta v1.1 — DSH headless modeling plugin: recipes / Spec v3 / assemblies -> numpy + Blender -> facts -> three-state verify -> GLB/OBJ/STL/BLEND (+STEP subset). Constrained solving, mates/DOF, studio previews and diagnostic passes. Ten tools, no GUI.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "cad",
+    "parametric",
+    "blender",
+    "llm",
+    "mcp"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "private": true,
+  "author": {
+    "name": "Atta contributors"
+  }
+}

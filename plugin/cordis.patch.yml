@@ -1,0 +1,6 @@
+# @atta/dsh-atta bundle layer.
+# The DSH plugin manager inserts this entry into the profile plugin tree.
+- insert:
+    - id: atta
+      name: '@atta/dsh-atta'
+      config: {}

@@ -1,0 +1,466 @@
+{
+ "schema": "atta.license_report/v1",
+ "generated": "2026-11-03T02:05:08Z",
+ "total_records": 573,
+ "accepted": 561,
+ "substantive": 520,
+ "reference_only": 41,
+ "by_tier": {
+  "A": 379,
+  "B": 182,
+  "C": 12
+ },
+ "by_tier_accepted_only": {
+  "A": 379,
+  "B": 182
+ },
+ "by_spdx": {
+  "BSD-2-Clause": 232,
+  "Apache-2.0": 69,
+  "CC-BY-SA-4.0": 63,
+  "CC-BY-4.0": 63,
+  "LGPL-2.1": 39,
+  "MIT": 36,
+  "CC0-1.0": 36,
+  "MPL-2.0": 13,
+  "NOASSERTION": 7,
+  "LGPL-3.0": 4,
+  "BSD-3-Clause": 3,
+  "0BSD": 3,
+  "GPL-2.0": 1,
+  "CC-BY-NC-SA-4.0": 1,
+  "CC-BY-NC-4.0": 1,
+  "GPL-3.0": 1,
+  "AGPL-3.0": 1
+ },
+ "by_source_kind": {
+  "github": 416,
+  "printables": 139,
+  "wikibooks": 11,
+  "dataset_site": 3,
+  "deep-geometry.github.io": 1,
+  "blender_docs": 1,
+  "readthedocs": 1,
+  "other_site": 1
+ },
+ "tier_by_source_kind": {
+  "github": {
+   "A": 353,
+   "B": 56,
+   "C": 7
+  },
+  "dataset_site": {
+   "C": 3
+  },
+  "deep-geometry.github.io": {
+   "C": 1
+  },
+  "wikibooks": {
+   "B": 11
+  },
+  "blender_docs": {
+   "B": 1
+  },
+  "readthedocs": {
+   "B": 1
+  },
+  "printables": {
+   "B": 113,
+   "A": 26
+  },
+  "other_site": {
+   "C": 1
+  }
+ },
+ "policy_checks": {
+  "tier_c_with_code": [],
+  "tier_b_with_code": [],
+  "tier_c_accepted": [],
+  "verdict": "PASS"
+ },
+ "tier_c_register": [
+  {
+   "id": "dataset_abc",
+   "family": "dataset.abc_cad",
+   "spdx": "NOASSERTION",
+   "code_present": false
+  },
+  {
+   "id": "dataset_cad_recode",
+   "family": "dataset.cad_recode",
+   "spdx": "CC-BY-NC-4.0",
+   "code_present": false
+  },
+  {
+   "id": "dataset_deepcad",
+   "family": "dataset.deepcad",
+   "spdx": "NOASSERTION",
+   "code_present": false
+  },
+  {
+   "id": "dataset_fusion360_gallery",
+   "family": "dataset.fusion360_gallery",
+   "spdx": "NOASSERTION",
+   "code_present": false
+  },
+  {
+   "id": "dataset_mfcad",
+   "family": "dataset.mfcad",
+   "spdx": "NOASSERTION",
+   "code_present": false
+  },
+  {
+   "id": "dataset_objaverse",
+   "family": "dataset.objaverse",
+   "spdx": "NOASSERTION",
+   "code_present": false
+  },
+  {
+   "id": "dataset_shapenet",
+   "family": "dataset.shapenet",
+   "spdx": "NOASSERTION",
+   "code_present": false
+  },
+  {
+   "id": "dataset_text2cad",
+   "family": "dataset.text2cad",
+   "spdx": "CC-BY-NC-SA-4.0",
+   "code_present": false
+  },
+  {
+   "id": "dataset_thingi10k",
+   "family": "dataset.thingi10k",
+   "spdx": "NOASSERTION",
+   "code_present": false
+  },
+  {
+   "id": "tierc_context_free",
+   "family": "architecture.ornament.cfdg_runtime",
+   "spdx": "GPL-2.0",
+   "code_present": false
+  },
+  {
+   "id": "tierc_implicitcad",
+   "family": "surface.fillet.implicit_extrude",
+   "spdx": "AGPL-3.0",
+   "code_present": false
+  },
+  {
+   "id": "tierc_structure_synth",
+   "family": "organic.grammar.structure_synth",
+   "spdx": "GPL-3.0",
+   "code_present": false
+  }
+ ],
+ "repo_verdicts": [
+  {
+   "repo": "BelfrySCAD/BOSL2 https:",
+   "records": 169,
+   "verdict": "matched_api",
+   "claimed": "BSD-2-Clause",
+   "actual": "BSD-2-Clause",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "revarbat/BOSL https:",
+   "records": 63,
+   "verdict": "matched_api",
+   "claimed": "BSD-2-Clause",
+   "actual": "BSD-2-Clause",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "openscad/MCAD https:",
+   "records": 39,
+   "verdict": "matched_api",
+   "claimed": "LGPL-2.1",
+   "actual": "LGPL-2.1",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "gumyr/cq_warehouse https:",
+   "records": 39,
+   "verdict": "matched_api",
+   "claimed": "Apache-2.0",
+   "actual": "Apache-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "curv3d/curv https:",
+   "records": 18,
+   "verdict": "matched_api",
+   "claimed": "Apache-2.0",
+   "actual": "Apache-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "alexadam/context-free-art https:",
+   "records": 11,
+   "verdict": "matched_api",
+   "claimed": "MIT",
+   "actual": "MIT",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "Irev-Dev/Round-Anything https:",
+   "records": 11,
+   "verdict": "matched_api",
+   "claimed": "MIT",
+   "actual": "MIT",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "rcolyer/threads-scad https:",
+   "records": 10,
+   "verdict": "matched_api",
+   "claimed": "CC0-1.0",
+   "actual": "CC0-1.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "libfive/libfive",
+   "records": 7,
+   "verdict": "confirmed",
+   "claimed": "MPL-2.0",
+   "actual": "MPL-2.0 (kernel/stdlib); Studio binary GPL-2.0+",
+   "evidence": "README.md §License — layered licence, no root LICENSE file",
+   "note": "recorded as MPL-2.0 for the library layer only"
+  },
+  {
+   "repo": "libfive/libfive https:",
+   "records": 6,
+   "verdict": "matched_api",
+   "claimed": "MPL-2.0",
+   "actual": "MPL-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "deadsy/sdfx https:",
+   "records": 6,
+   "verdict": "matched_api",
+   "claimed": "MIT",
+   "actual": "MIT",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "elalish/manifold https:",
+   "records": 5,
+   "verdict": "matched_api",
+   "claimed": "Apache-2.0",
+   "actual": "Apache-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "jscad/OpenJSCAD.org https:",
+   "records": 5,
+   "verdict": "matched_api",
+   "claimed": "MIT",
+   "actual": "MIT",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "JustinSDK/dotSCAD https:",
+   "records": 4,
+   "verdict": "matched_api",
+   "claimed": "LGPL-3.0",
+   "actual": "LGPL-3.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "susam/pov25 https:",
+   "records": 3,
+   "verdict": "matched_api",
+   "claimed": "MIT",
+   "actual": "MIT",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "adrianschlatter/threadlib https:",
+   "records": 3,
+   "verdict": "matched_api",
+   "claimed": "BSD-3-Clause",
+   "actual": "BSD-3-Clause",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "hannobraun/fornjot https:",
+   "records": 3,
+   "verdict": "matched_api",
+   "claimed": "0BSD",
+   "actual": "0BSD",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "CadQuery/cadquery https:",
+   "records": 3,
+   "verdict": "matched_api",
+   "claimed": "Apache-2.0",
+   "actual": "Apache-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "gumyr/build123d https:",
+   "records": 3,
+   "verdict": "matched_api",
+   "claimed": "Apache-2.0",
+   "actual": "Apache-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "MtnViewJohn/context-free https:",
+   "records": 1,
+   "verdict": "matched_api",
+   "claimed": "GPL-2.0",
+   "actual": "GPL-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "AutodeskAILab/Fusion360GalleryDataset",
+   "records": 1,
+   "verdict": "unresolved",
+   "claimed": "NOASSERTION",
+   "actual": "not asserted",
+   "evidence": "no licence readable",
+   "note": "Tier C retained (conservative)"
+  },
+  {
+   "repo": "ChrisWu1997/DeepCAD",
+   "records": 1,
+   "verdict": "retained_C",
+   "claimed": "NOASSERTION",
+   "actual": "MIT (code) — dataset terms separate",
+   "evidence": "LICENSE",
+   "note": "repository code is MIT but the DATASET terms are not asserted; kept Tier C per requirements §2.4"
+  },
+  {
+   "repo": "SadilKhan/Text2CAD",
+   "records": 1,
+   "verdict": "unresolved",
+   "claimed": "CC-BY-NC-SA-4.0",
+   "actual": "not asserted",
+   "evidence": "no licence readable",
+   "note": "Tier C retained (NC ⇒ C either way)"
+  },
+  {
+   "repo": "filaPro/cad-recode",
+   "records": 1,
+   "verdict": "unresolved",
+   "claimed": "CC-BY-NC-4.0",
+   "actual": "not asserted",
+   "evidence": "no licence readable",
+   "note": "Tier C retained (NC ⇒ C either way)"
+  },
+  {
+   "repo": "hducg/MFCAD",
+   "records": 1,
+   "verdict": "retained_C",
+   "claimed": "NOASSERTION",
+   "actual": "MIT (code) — dataset terms separate",
+   "evidence": "LICENSE",
+   "note": "same reasoning as DeepCAD; kept Tier C"
+  },
+  {
+   "repo": "elalish/manifold",
+   "records": 1,
+   "verdict": "matched_api",
+   "claimed": "Apache-2.0",
+   "actual": "Apache-2.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  },
+  {
+   "repo": "Haskell-Things/ImplicitCAD https:",
+   "records": 1,
+   "verdict": "matched_api",
+   "claimed": "AGPL-3.0",
+   "actual": "AGPL-3.0",
+   "evidence": "gh.py license",
+   "note": "API agreed with claim"
+  }
+ ],
+ "unverified_claims": {
+  "count": 139,
+  "reason": "printables.com returns HTTP 403 to automated fetch and renders the licence field client-side; the harvest recorded per-model licence + author + CC deed URL but the claim could not be independently corroborated by QA.",
+  "exposure": "no code and no model file is redistributed by these records — they are attribution metadata only (mesh family references), so the residual risk is a wrong attribution string, not a licence breach.",
+  "remediation": "re-verify the 118 model pages by hand or with an authenticated session before any external redistribution."
+ },
+ "audit_findings": {
+  "mismatches": [
+   {
+    "repo": "ChrisWu1997/DeepCAD",
+    "claimed": "NOASSERTION",
+    "evidence": "MIT",
+    "claimed_tier": "C",
+    "evidence_tier": "A",
+    "records": 1,
+    "license_path": "LICENSE",
+    "record_ids": [
+     "dataset_deepcad"
+    ]
+   },
+   {
+    "repo": "hducg/MFCAD",
+    "claimed": "NOASSERTION",
+    "evidence": "MIT",
+    "claimed_tier": "C",
+    "evidence_tier": "A",
+    "records": 1,
+    "license_path": "LICENSE",
+    "record_ids": [
+     "dataset_mfcad"
+    ]
+   }
+  ],
+  "unresolved": [
+   {
+    "repo": "openscad/MCAD",
+    "claimed": "LGPL-2.1",
+    "evidence": null,
+    "records": 39
+   },
+   {
+    "repo": "libfive/libfive",
+    "claimed": "MPL-2.0",
+    "evidence": null,
+    "records": 13
+   },
+   {
+    "repo": "AutodeskAILab/Fusion360GalleryDataset",
+    "claimed": "NOASSERTION",
+    "evidence": "unknown",
+    "records": 1
+   },
+   {
+    "repo": "SadilKhan/Text2CAD",
+    "claimed": "CC-BY-NC-SA-4.0",
+    "evidence": "unknown",
+    "records": 1
+   },
+   {
+    "repo": "filaPro/cad-recode",
+    "claimed": "CC-BY-NC-4.0",
+    "evidence": "unknown",
+    "records": 1
+   }
+  ]
+ }
+}

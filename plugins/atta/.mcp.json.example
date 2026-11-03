@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "atta": {
+      "type": "stdio",
+      "command": "/path/to/python3",
+      "args": ["-m", "atta.agent.mcp"],
+      "cwd": "/path/to/Atta-v1.1",
+      "env": {
+        "ATTA_ROOT": "/path/to/Atta-v1.1",
+        "PYTHONPATH": "/path/to/Atta-v1.1",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "timeoutMs": 3600000
+    }
+  }
+}

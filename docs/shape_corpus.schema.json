@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atta.local/schema/shape_corpus.schema.json",
+  "title": "Atta shape corpus record",
+  "description": "One normalized, license-checked modeling example for Atta shape coverage.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "source", "kind", "title", "shape", "quality"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{2,96}$",
+      "description": "Stable, readable, globally unique; no personal data."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "license", "license_spdx", "retrieved_at"],
+      "properties": {
+        "url": {"type": "string", "format": "uri"},
+        "repo": {"type": "string", "format": "uri"},
+        "commit": {"type": "string"},
+        "path": {"type": "string"},
+        "license": {"type": "string"},
+        "license_spdx": {"type": "string"},
+        "license_url": {"type": "string", "format": "uri"},
+        "author": {"type": "string"},
+        "retrieved_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["openscad", "cadquery", "build123d", "freecad", "blender", "sdf", "mesh", "dataset", "docs", "other"]
+    },
+    "title": {"type": "string", "minLength": 1, "maxLength": 200},
+    "description": {"type": "string", "maxLength": 2000},
+    "language": {"type": "string"},
+    "shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "category"],
+      "properties": {
+        "family": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{1,80}$",
+          "description": "Dotted family id, e.g. bracket.l_mount, gear.spur.involute."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["primitive", "mechanical", "product", "architecture", "organic", "pattern", "assembly", "text", "lattice", "surface", "tolerance", "material_finish", "other"]
+        },
+        "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 40},
+        "units": {"type": "string", "enum": ["mm", "cm", "m", "in", "unknown"]},
+        "symmetry": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["x", "y", "z", "radial", "none", "unknown"]},
+          "maxItems": 6
+        },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "closed": {"type": "boolean"},
+            "genus": {"type": ["integer", "null"]},
+            "components": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type"],
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string", "enum": ["float", "int", "bool", "enum", "str"]},
+          "unit": {"type": "string"},
+          "default": {},
+          "min": {"type": "number"},
+          "max": {"type": "number"},
+          "enum": {"type": "array"},
+          "description": {"type": "string", "maxLength": 500}
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "items": {"type": "string"},
+      "maxItems": 100,
+      "description": "Normalized Atta operation vocabulary."
+    },
+    "raw_ops": {
+      "type": "array",
+      "items": {"type": "string"},
+      "maxItems": 100,
+      "description": "Original operation names that do not map to Atta yet."
+    },
+    "graph": {
+      "type": ["object", "null"],
+      "description": "Optional Atta Spec v3 feature graph or a close equivalent."
+    },
+    "code": {
+      "type": "string",
+      "maxLength": 200000,
+      "description": "Permissive-license code excerpt only; empty for Tier C."
+    },
+    "constraints": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"type": "object"}
+    },
+    "tests": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string"},
+          "params": {"type": "object"},
+          "expect": {"type": "object"}
+        }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string", "enum": ["image", "step", "stl", "glb", "obj", "other"]},
+          "url": {"type": "string", "format": "uri"},
+          "license": {"type": "string"}
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["license_tier", "license_ok", "has_params", "runnable", "has_tests"],
+      "properties": {
+        "license_tier": {"type": "string", "enum": ["A", "B", "C", "unknown"]},
+        "license_ok": {"type": "boolean"},
+        "has_params": {"type": "boolean"},
+        "runnable": {"type": "boolean"},
+        "has_tests": {"type": "boolean"},
+        "has_preview": {"type": "boolean"},
+        "shape_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "quality_score": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "category": {"type": "string"},
+        "family_gap": {"type": "number", "minimum": 0, "maximum": 1},
+        "reuse_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
+        "techniques": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["parametric_decomposition", "symmetry", "repetition", "feature_order", "surface_network", "constraints", "modular_library", "assembly_mates", "text", "lattice", "robust_boolean", "shape_grammar", "sdf_implicit"]
+          }
+        }
+      }
+    },
+    "nomination": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "family": {"type": "string"},
+        "reason": {"type": "string", "maxLength": 1000},
+        "suggested_recipe": {"type": "string"},
+        "suggested_features": {"type": "array", "items": {"type": "string"}},
+        "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]}
+      }
+    },
+    "notes": {"type": "string", "maxLength": 4000},
+    "topology_unverified": {
+      "type": "boolean",
+      "description": "The source states a topology claim that could not be reproduced generically (e.g. recursive fractals); the bench keeps `closed` but skips genus/components."
+    },
+    "topology_note": {"type": "string", "maxLength": 1000}
+  }
+}

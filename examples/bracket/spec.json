@@ -1,0 +1,44 @@
+{
+  "schema": "atta.spec/v3",
+  "name": "bracket-01",
+  "model": {
+    "kind": "graph",
+    "output": "cut",
+    "units": "mm",
+    "segments": 64,
+    "features": [
+      {
+        "id": "plate",
+        "op": "box",
+        "args": {"size": [80, 50, 6], "center": [40, 25, 3]}
+      },
+      {
+        "id": "hole_a",
+        "op": "cylinder",
+        "args": {"radius": 4, "height": 20, "center": [14, 25, 3]}
+      },
+      {
+        "id": "hole_b",
+        "op": "cylinder",
+        "args": {"radius": 4, "height": 20, "center": [66, 25, 3]}
+      },
+      {
+        "id": "holes",
+        "op": "union",
+        "inputs": ["hole_a", "hole_b"]
+      },
+      {
+        "id": "cut",
+        "op": "difference",
+        "inputs": ["plate", "holes"]
+      }
+    ]
+  },
+  "quality": "draft",
+  "material": "steel",
+  "finish": {"bevel_mm": 0.4, "smooth_deg": 30},
+  "constraints": {
+    "bbox": {"x": [75, 85], "y": [45, 55], "z": [5, 7]},
+    "volume_mm3": [15000, 26000]
+  }
+}

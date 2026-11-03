@@ -1,0 +1,229 @@
+{
+  "schema": "atta.coverage/v1",
+  "updated": "2026-11-02",
+  "targets": {
+    "v1_2": {
+      "new_families": 12,
+      "accepted_examples": 300,
+      "held_out_pass_rate": 0.75
+    },
+    "v2": {
+      "new_families": 30,
+      "accepted_examples": 1000,
+      "held_out_pass_rate": 0.85
+    }
+  },
+  "categories": [
+    {
+      "id": "primitive",
+      "label": "基础体与 CSG",
+      "target_examples": 30,
+      "target_families": 1,
+      "priority": "P2",
+      "must_have_features": [
+        "box",
+        "cylinder",
+        "cone",
+        "torus",
+        "union",
+        "difference",
+        "intersection"
+      ],
+      "acceptance": {
+        "closed": true,
+        "tests": 2
+      }
+    },
+    {
+      "id": "mechanical",
+      "label": "机械零件",
+      "target_examples": 60,
+      "target_families": 2,
+      "priority": "P0",
+      "must_have_features": [
+        "hole",
+        "pattern_polar",
+        "fillet",
+        "chamfer",
+        "clearance",
+        "interference"
+      ],
+      "acceptance": {
+        "closed": true,
+        "verify": "pass",
+        "param_recovery_mm": 0.5
+      }
+    },
+    {
+      "id": "product",
+      "label": "产品/工业造型",
+      "target_examples": 40,
+      "target_families": 1,
+      "priority": "P0",
+      "must_have_features": [
+        "revolve",
+        "loft",
+        "sweep",
+        "shell",
+        "lobes"
+      ],
+      "acceptance": {
+        "closed": true,
+        "min_wall_mm": 1.5
+      }
+    },
+    {
+      "id": "architecture",
+      "label": "建筑构件",
+      "target_examples": 40,
+      "target_families": 1,
+      "priority": "P1",
+      "must_have_features": [
+        "extrude",
+        "boolean",
+        "pattern_linear",
+        "mirror"
+      ],
+      "acceptance": {
+        "closed": true,
+        "bbox_tolerance_mm": 2.0
+      }
+    },
+    {
+      "id": "organic",
+      "label": "有机曲面",
+      "target_examples": 30,
+      "target_families": 1,
+      "priority": "P1",
+      "must_have_features": [
+        "coons",
+        "gordon",
+        "thicken",
+        "lobes"
+      ],
+      "acceptance": {
+        "closed": true,
+        "min_wall_mm": 0.8
+      }
+    },
+    {
+      "id": "pattern",
+      "label": "阵列与重复结构",
+      "target_examples": 40,
+      "target_families": 1,
+      "priority": "P0",
+      "must_have_features": [
+        "pattern_linear",
+        "pattern_polar",
+        "mirror",
+        "boolean"
+      ],
+      "acceptance": {
+        "closed": true,
+        "repeat_count_tolerance": 0
+      }
+    },
+    {
+      "id": "assembly",
+      "label": "装配与配合",
+      "target_examples": 30,
+      "target_families": 1,
+      "priority": "P0",
+      "must_have_features": [
+        "parts",
+        "mates",
+        "clearance",
+        "interference"
+      ],
+      "acceptance": {
+        "mates_resolved": true,
+        "clearance_min_mm": 0.0
+      }
+    },
+    {
+      "id": "text",
+      "label": "文字与标识",
+      "target_examples": 20,
+      "target_families": 1,
+      "priority": "P1",
+      "must_have_features": [
+        "text_engrave",
+        "text_emboss",
+        "extrude"
+      ],
+      "acceptance": {
+        "closed": true,
+        "depth_tolerance_mm": 0.2
+      }
+    },
+    {
+      "id": "lattice",
+      "label": "晶格与多孔",
+      "target_examples": 20,
+      "target_families": 1,
+      "priority": "P1",
+      "must_have_features": [
+        "lattice",
+        "perforate",
+        "boolean",
+        "thicken"
+      ],
+      "acceptance": {
+        "closed": true,
+        "porosity_tolerance": 0.05
+      }
+    },
+    {
+      "id": "surface",
+      "label": "曲面网络",
+      "target_examples": 30,
+      "target_families": 1,
+      "priority": "P0",
+      "must_have_features": [
+        "loft",
+        "sweep",
+        "coons",
+        "gordon",
+        "thicken"
+      ],
+      "acceptance": {
+        "closed": true,
+        "continuity": "G1_min"
+      }
+    },
+    {
+      "id": "tolerance",
+      "label": "公差与配合",
+      "target_examples": 20,
+      "target_families": 1,
+      "priority": "P1",
+      "must_have_features": [
+        "hole",
+        "fillet",
+        "chamfer",
+        "clearance",
+        "interference"
+      ],
+      "acceptance": {
+        "fit_class": "documented",
+        "verify": "pass"
+      }
+    },
+    {
+      "id": "material_finish",
+      "label": "表面与 finish",
+      "target_examples": 10,
+      "target_families": 0,
+      "priority": "P2",
+      "must_have_features": [
+        "bevel",
+        "smooth",
+        "material"
+      ],
+      "acceptance": {
+        "finish_receipt": true
+      }
+    }
+  ],
+  "scope": "target_families and target_examples are v1.2 targets; v2 expands both."
+}

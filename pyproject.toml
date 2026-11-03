@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atta"
+version = "1.1.0"
+description = "Atta v1.1 — LLM-native parametric modeling workbench, Blender-first."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Atta contributors" }]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["cad", "parametric", "blender", "llm", "constraint-solver", "3d-printing"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Manufacturing",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "trimesh>=4.0",
+  "manifold3d>=3.0",
+  "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+brep = ["build123d>=0.13"]
+dev = ["pytest>=7", "jsonschema>=4"]
+all = ["build123d>=0.13", "pytest>=7", "jsonschema>=4"]
+
+[project.scripts]
+atta = "atta.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["atta*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,18 @@
+[
+  {
+    "tool": "atta_model",
+    "args": {"recipe": "product.mug", "quality": "draft", "name": "pipeline-mug"}
+  },
+  {
+    "tool": "atta_describe",
+    "args": {"model_id": {"$prev": "model_id"}, "probe": ["bbox", "topology"]}
+  },
+  {
+    "tool": "atta_verify",
+    "args": {"model_id": {"$prev": "model_id"}, "level": "basic"}
+  },
+  {
+    "tool": "atta_preview",
+    "args": {"model_id": {"$prev": "model_id"}, "views": ["iso"], "res": 256}
+  }
+]

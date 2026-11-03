@@ -1,0 +1,26 @@
+{
+  "schema": "atta.spec/v3",
+  "name": "mug-01",
+  "model": {
+    "kind": "recipe",
+    "id": "product.mug",
+    "preset": "nominal",
+    "params": {
+      "height": 95,
+      "wall": 3.2,
+      "handle_enabled": true
+    }
+  },
+  "quality": "draft",
+  "material": "ceramic",
+  "finish": {
+    "bevel_mm": 0.6,
+    "smooth_deg": 35
+  },
+  "constraints": {
+    "bbox": {
+      "z": [80, 120]
+    },
+    "min_wall_mm": 2.4
+  }
+}
