@@ -1,5 +1,9 @@
 # Atta
 
+<img src="docs/assets/mark.svg" width="88" align="right" alt="Atta mark">
+
+**English | [中文](README.zh-CN.md)**
+
 Atta is a parametric CAD kernel built for language models to drive. You describe a
 part as a rebuildable spec, Atta computes the geometry in deterministic Python,
 **measures** it, and only then lets a render or an export exist. An agent never has
@@ -21,7 +25,7 @@ Ten tools, 23 recipes, 25 feature ops. Blender is optional.
 ## Install
 
 ```bash
-git clone <this-repo> atta && cd atta
+git clone https://github.com/laszapens/atta.git atta && cd atta
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
@@ -265,6 +269,7 @@ atta/            the Python package (numpy kernel + Blender backend + agent laye
 tests/           unit, contract and end-to-end tests
 examples/        mug and bracket specs plus a batch pipeline
 docs/            architecture, interfaces, LLM design notes, roadmap, coverage, quality
+  assets/        identity mark (icon only)
 plugin/          DSH plugin
 plugins/         ZCode plugin + local marketplace
 corpus/bench/    held-out generalization cases
