@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Host-independent agent adapter for Atta v1.1.
+"""Host-independent agent adapter for Atta.
 
 The ten tool contracts in :mod:`atta.agent.tools` are the single source of
 truth; MCP, HTTP and every manifest are generated from them.

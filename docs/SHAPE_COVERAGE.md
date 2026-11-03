@@ -1,145 +1,149 @@
-# 形状覆盖 (shape coverage) — v1.2
+# Shape coverage
 
-> 生成于 2026-11-02 21:09。本文由 `work/harvest/delivery/make_coverage_doc.py` 从实测数据生成：
-> 每条 family 的 `verify` 回执来自真实 draft 构建（`work/harvest/delivery/inventory.json`），
-> 语料数字来自**当前** `corpus/normalized/*.jsonl`。这是评审先读的一页。
+23 recipes across 11 of the 12 shape categories. Every recipe in this table builds
+a **closed, single-component manifold** at `quality=draft` and passes
+`atta_verify --level standard` with its declared genus as an error-level check.
 
-## 0. 一句话
-
-v1.2 把 Atta 的 shape 面从 **9 个 recipe** 扩到 **23 个**（+14），一级类别覆盖从 **3 类**到 **11 类**（共 12 类），新增 **5 个 feature op**（`gyroid`、`offset`、`sdf`、`text_emboss`、`text_engrave`，让 `text` 类别从 0 到有），并把「什么算覆盖」变成**可执行的门**：
-`tests/test_coverage_gate.py` 直接读 `docs/coverage_matrix.json` 的 acceptance，任何 family 达不到自己类别的规则就红。
-
-## 1. 这次加了什么
-
-| 维度 | 之前 | 现在 | 证据 |
-|---|---|---|---|
-| recipe / family | 9 | **23** | `atta/families/*.py` + `atta/recipes.py` |
-| feature op | 20 | **25**（+5：`gyroid`、`offset`、`sdf`、`text_emboss`、`text_engrave`） | family 自己用 `features.register_op` 注册（`text.py` / `offset_ops.py`），不改 `features.py` |
-| 一级类别有 family | 3 类（mechanical、product、surface） | **11 / 12 类** | 下表 §3 |
-| 语料 accepted / substantive | — | **561 / 520** | `corpus/normalized/*.jsonl`、`corpus/coverage_report.json` |
-| 覆盖门 | 无 | `tests/test_families.py` + `tests/test_coverage_gate.py` | `tests/` |
-
-架构侧（不是形状，但决定了上面这些能不能长期维护）：
-`atta/registry.py` 把注册表从 `recipes.py` 拆出；`atta/kit.py` 收公共 builder 助手；
-`atta/families/<category>.py` 一类别一文件、**自动发现**、宽容加载（`ATTA_FAMILIES_STRICT=1` 时严格）；
-`features.register_op` 让 family 自己加 op 而不改 `features.py`。
-
-## 2. 14 个新 family（含验收证据）
-
-全部 `quality=draft`、`verify --level standard` 实测。`genus` 列是**实测**拓扑亏格，与 recipe 上声明的 `expected_genus` 逐条相等——verify 把这一项当 **error 级**，写错直接 fail，所以这列没法糊弄。
-
-| # | recipe id | 类别 | 参数 | 约束 | genus（实测） | 三角面 | 构建 (draft) | verify |
-|---|---|---|---|---|---|---|---|---|
-| 1 | `primitive.chamfer_box` | primitive | 8 | 4 | 0 | 72 | 0.030 s | **pass** |
-| 2 | `mechanical.flange` | mechanical | 13 | 11 | 7 | 2328 | 0.056 s | **pass** |
-| 3 | `mechanical.gear.involute` | mechanical | 10 | 6 | 1 | 2546 | 0.240 s | **pass** |
-| 4 | `product.screw_cap` | product | 13 | 12 | 0 | 12030 | 0.195 s | **pass** |
-| 5 | `architecture.fluted_column` | architecture | 12 | 9 | 0 | 22708 | 0.522 s | **pass** |
-| 6 | `architecture.tower.growth` | architecture | 11 | 8 | 0 | 196 | 0.041 s | **pass** |
-| 7 | `organic.seashell` | organic | 10 | 5 | 0 | 7676 | 0.010 s | **pass** |
-| 8 | `pattern.honeycomb_panel` | pattern | 10 | 5 | 35 | 1088 | 0.021 s | **pass** |
-| 9 | `assembly.bolt_nut` | assembly | 13 | 7 | 1 | 440 | 0.017 s | **pass** |
-| 10 | `text.engraved_plate` | text | 19 | 5 | 0 | 594 | 0.018 s | **pass** |
-| 11 | `lattice.gyroid_slab` | lattice | 7 | 5 | 39 | 171912 | 0.493 s | **pass** |
-| 12 | `surface.coons_duct` | surface | 9 | 5 | 1 | 8192 | 0.022 s | **pass** |
-| 13 | `surface.fillet_network` | surface | 7 | 5 | 0 | 12016 | 6.072 s | **pass** |
-| 14 | `tolerance.clearance_ladder` | tolerance | 7 | 6 | 0 | 2272 | 0.117 s | **pass** |
-
-> `architecture.tower.growth` 是这批里**唯一一个「技巧本身就是主张」**的 family：
-> 它把递归生长律（四叉/门格式产生式，参数 `levels`/`branching`/`scale`/`member`/`taper`）
-> 写进 **recipe builder**（普通 Python 返回 mesh），而不是新增 op——递归不需要 Spec DAG 变形。
-> 它的语料证据是薄的（提名排名 #12，自评「a declared 3-variant bet」），上表里该照实显示小数字。
-> 它同时正面回答 `architecture` 的语料短少（20/40 substantive）：**生长律能在没有参数化建筑语料的地方生成结构**。
-> 它也是 `work/harvest/deep/NOTE.md` 那个「中断的想法 / 递归」问题的答复——这一轮是用代码关掉的，不是用承诺。
-
-每条的参数表 / 约束 / nominal+boundary 回执 / 感知 ASCII 在对应报告里：
-
-| 类别 | 报告 |
-|---|---|
-| mechanical | `work/reports/family-mech.md` |
-| tolerance | `work/reports/family-mech.md` |
-| pattern | `work/reports/family-pattern.md` |
-| assembly | `work/reports/family-pattern.md` |
-| primitive | `work/reports/family-pattern.md` |
-| product | `work/reports/family-product.md` |
-| architecture | `work/reports/family-product.md` |
-| surface | `work/reports/family-surface.md` |
-| organic | `work/reports/family-surface.md` |
-| lattice | `work/reports/family-surface.md` |
-| text | `work/reports/family-text.md` |
-
-## 3. 12 个类别：谁有 family、语料够不够
-
-`目标` = `docs/coverage_matrix.json` 的 `target_examples`。`语料` 口径 = **substantive**（accepted **且**有参数），即 §3.1 的 implementation-grade 口径，与 `corpus/coverage_report.json` 完全一致；reference-only 记录（无参数）**不计入目标**。**短少的类别直接写短少，不四舍五入。**
-
-`bench` 列 = 该类别在 100 例 held-out 基准里的 **verify pass**（例数见括注），基准用通用 Spec v3 图、从不调用现成 recipe（`corpus/bench/generalization_v1.json`）。
-
-| 类别 | family 数 | family id | 语料 substantive | accepted（参考） | 目标 | 语料状态 | bench verify |
-|---|---|---|---|---|---|---|---|
-| primitive | 1 | `primitive.chamfer_box` | 70 | 70 | 30 | ✅ 达标 | 8/8 |
-| mechanical | 4 | `mechanical.flange`、`mechanical.gear.involute`、`mechanism.gear`、`part.bracket` | 92 | 99 | 60 | ✅ 达标 | 16/16 |
-| product | 6 | `part.enclosure`、`product.bottle`、`product.bowl`、`product.mug`、`product.screw_cap`、`product.vase` | 41 | 51 | 40 | ✅ 达标 | 11/11 |
-| architecture | 2 | `architecture.fluted_column`、`architecture.tower.growth` | 20 | 27 | 40 | ⚠️ 短少 20 | 11/11 |
-| organic | 1 | `organic.seashell` | 13 | 20 | 30 | ⚠️ 短少 17 | 5/8 |
-| pattern | 1 | `pattern.honeycomb_panel` | 46 | 46 | 40 | ✅ 达标 | 11/11 |
-| assembly | 1 | `assembly.bolt_nut` | 85 | 85 | 30 | ✅ 达标 | 8/8 |
-| text | 1 | `text.engraved_plate` | 9 | 12 | 20 | ⚠️ 短少 11 | 3/3 |
-| lattice | 1 | `lattice.gyroid_slab` | 13 | 15 | 20 | ⚠️ 短少 7 | 2/5 |
-| surface | 4 | `surface.coons_duct`、`surface.dome`、`surface.fillet_network`、`surface.panel` | 95 | 95 | 30 | ✅ 达标 | 10/10 |
-| tolerance | 1 | `tolerance.clearance_ladder` | 17 | 22 | 20 | ⚠️ 短少 3 | 6/6 |
-| material_finish | 0 | — | 19 | 19 | 10 | ⛔ 无 family；语料 19/10 | 3/3 |
-
-**短少的类别（substantive 语料未达标）**：architecture 20/40（缺 20）、organic 13/30（缺 17）、text 9/20（缺 11）、lattice 13/20（缺 7）、tolerance 17/20（缺 3）。
-
-**没有 family 的类别**：material_finish。
-
-`material_finish` 在矩阵里 `target_families: 0`（只要求语料样例，不要求 family），所以它**不算缺口**；`tests/test_coverage_gate.py` 也按这个规则豁免它。
-
-## 4. 语料：总数与许可分层（实测）
-
-| 指标 | 数量 |
-|---|---|
-| schema 有效记录 | 573 |
-| accepted（Tier A+B） | **561** |
-| ├ substantive（accepted 且有参数，覆盖口径） | **520** |
-| └ reference-only（accepted 但无参数，不计入目标） | 41 |
-| Tier A | 379 |
-| Tier B | 182 |
-| Tier C（不计入 accepted） | 12 |
-| 家族聚类 / 可提名 | 见 `python3 work/tools/analyze.py`（输出粘在 `work/reports/final.md`） |
-
-出处清单（逐 source 的 licence + URL）在 `corpus/DELIVERY.md`；逐条 provenance 在 JSONL 行内。Tier 规则：**只有 Tier A 保留 `code`**，`python3 work/tools/audit_provenance.py` 会打印 `code by tier` 并对此断言。
-
-## 5. 「覆盖」的判据（§14 落地）
-
-需求文档 §14 说：一个 family 要同时有 *参数 schema + 约束 + 测试 + verify 回执 + 感知签名 + 许可证* 才算进入覆盖。这里逐项对应到文件：
-
-| 要件 | 落在哪 | 谁在守 |
-|---|---|---|
-| 参数 schema | `@recipe(params=...)`，`atta catalog --verbose` 可导出 | `tests/test_families.py::test_family_metadata_is_complete`（类型/单位/min/max/default 齐全） |
-| 约束 | `@recipe(constraints=[...])` | 同上 + `test_every_family_resolves_all_presets` |
-| 测试 | `tests/test_families.py`（闭合/单实体/无非流形）、`tests/test_coverage_gate.py`（类别 acceptance） | 全仓 `pytest tests/` |
-| verify 回执 | `work/harvest/delivery/inventory.json` + 各 `work/reports/family-*.md` | `verify --level standard`，verdict 必须 `pass` |
-| 感知签名 | `python3 -m atta perceive`（text+ASCII+section+sha256） | `tests/test_perception.py` |
-| 许可证 | 语料侧 `corpus/DELIVERY.md`；实现侧为本仓库自有代码，参数命名对齐语料语义 | `audit_provenance.py` |
-
-## 6. 现在还不行的（诚实清单）
-
-1. **`tests/corpus/` 不存在**：需求 §10 建议「每个 family 的 nominal + boundary」做成独立测试。实际是 `tests/test_families.py` 只跑 **nominal**（每 family 一次构建），**boundary 用例以记录形式存在于 `work/reports/family-*.md`，不是每次 CI 重跑**。这是真缺口，不是措辞问题。
-2. **family 内部实现质量不均**：`mechanical.flange` 与 `pattern.honeycomb_panel` 的亏格（7 / 35）是**孔数派生**的，参数一动亏格就变；它们的 `expected_genus` 只对 nominal 成立，换孔数后 verify 的 genus 检查会 fail（与 `lattice.gyroid_slab` 的单元数限制同类问题，那边已用 warn 约束公开说明）。
-3. **`material_finish` 没有 family**（矩阵允许），语料 19 条只作参考。
-4. 语料侧仍短少的类别见 §3。**短少就是短少**，没有用 reference-only 记录去凑目标数。
-
-更细的取舍与失败分类在 `work/reports/final.md`（含「我们做不到什么」）。
-
-## 7. 复现
+The numbers below are measured, not asserted. Reproduce the whole table with:
 
 ```bash
-cd $ATTA_ROOT
-python3 -m pytest tests/ -q                      # 全仓门
-python3 work/harvest/delivery/inventory.py       # 全部 recipe 的实测回执
-python3 work/harvest/delivery/make_coverage_doc.py   # 重新生成本文
-python3 work/harvest/delivery/make_delivery.py       # 重新生成 corpus/DELIVERY.md
-python3 scripts/validate_corpus.py corpus/normalized/*.jsonl --coverage
-python3 work/tools/analyze.py
+python3 -m pytest tests/test_families.py tests/test_coverage_gate.py -q
 ```
+
+## The 23 recipes
+
+`params` is the number of typed parameters the recipe exposes (`catalog
+--verbose` prints them with bounds, units and defaults). `genus` is the
+**measured** Euler characteristic of the delivered mesh, which must equal the
+recipe's declared `expected_genus`. Build time is a draft build on a warm
+process; the verify column is the verdict at `standard`.
+
+| recipe | params | genus | triangles | draft build | verify |
+|---|---|---|---|---|---|
+| `primitive.chamfer_box` | 8 | 0 | 72 | 0.03 s | pass |
+| `part.bracket` | 7 | 2 | 612 | 0.01 s | pass |
+| `part.enclosure` | 8 | 0 | 44 | 0.01 s | pass |
+| `mechanical.flange` | 13 | 7 | 2328 | 0.06 s | pass |
+| `mechanical.gear.involute` | 10 | 1 | 2546 | 0.26 s | pass |
+| `mechanism.gear` | 7 | 1 | 1856 | 0.05 s | pass |
+| `tolerance.clearance_ladder` | 7 | 0 | 2272 | 0.15 s | pass |
+| `product.mug` | 13 | 1 | 25482 | 0.10 s | pass |
+| `product.bowl` | 11 | 0 | 20544 | 0.03 s | pass |
+| `product.vase` | 12 | 0 | 30912 | 0.04 s | pass |
+| `product.bottle` | 8 | 0 | 2684 | 0.08 s | pass |
+| `product.screw_cap` | 13 | 0 | 12030 | 0.20 s | pass |
+| `assembly.bolt_nut` | 13 | 1 | 440 | 0.02 s | pass |
+| `pattern.honeycomb_panel` | 10 | 35 | 1088 | 0.02 s | pass |
+| `lattice.gyroid_slab` | 7 | 39 | 171912 | 0.59 s | pass |
+| `surface.panel` | 7 | 0 | 3296 | 0.01 s | pass |
+| `surface.dome` | 9 | 0 | 3296 | 0.01 s | pass |
+| `surface.coons_duct` | 9 | 1 | 8192 | 0.02 s | pass |
+| `surface.fillet_network` | 7 | 0 | 16616 | 4.40 s | pass |
+| `architecture.fluted_column` | 12 | 0 | 22708 | 0.61 s | pass |
+| `architecture.tower.growth` | 11 | 0 | 196 | 0.05 s | pass |
+| `organic.seashell` | 10 | 0 | 7676 | 0.01 s | pass |
+| `text.engraved_plate` | 19 | 0 | 594 | 0.02 s | pass |
+
+Total draft-build time for all 23 on one warm process: **6.8 s**.
+`surface.fillet_network` is the outlier at ~4.4 s because it resamples an SDF
+offset field; every other recipe is under 0.7 s and 20 of them are under 0.25 s.
+
+## Categories
+
+`docs/coverage_matrix.json` defines the 12 categories and what each one must
+accept. The gate is executable: `tests/test_coverage_gate.py` reads the matrix
+and fails any recipe that violates its own category's acceptance rule (closed,
+`min_wall_mm`, genus, single component).
+
+| category | recipes shipped | ids |
+|---|---|---|
+| primitive | 1 | `primitive.chamfer_box` |
+| mechanical | 4 | `mechanical.flange`, `mechanical.gear.involute`, `mechanism.gear`, `part.bracket` |
+| product | 6 | `product.mug`, `product.bowl`, `product.vase`, `product.bottle`, `product.screw_cap`, `part.enclosure` |
+| surface | 4 | `surface.panel`, `surface.dome`, `surface.coons_duct`, `surface.fillet_network` |
+| architecture | 2 | `architecture.fluted_column`, `architecture.tower.growth` |
+| lattice | 1 | `lattice.gyroid_slab` |
+| pattern | 1 | `pattern.honeycomb_panel` |
+| organic | 1 | `organic.seashell` |
+| assembly | 1 | `assembly.bolt_nut` |
+| tolerance | 1 | `tolerance.clearance_ladder` |
+| text | 1 | `text.engraved_plate` |
+| material_finish | 0 | — |
+
+`material_finish` has `target_families: 0` in the matrix — it asks for reference
+examples, not a family — so it is not a gap and the gate exempts it.
+
+## The 25 feature ops
+
+`atta/families/*.py` can register ops without touching the core, and five of the
+25 come from families rather than `features.py`: `gyroid`, `offset`, `sdf`,
+`text_engrave`, `text_emboss`.
+
+`box`, `cylinder`, `sphere`, `cone`, `torus`, `revolve`, `loft`, `sweep`, `coons`,
+`gordon`, `extrude`, `thicken`, `lobes`, `union`, `difference`, `intersection`,
+`mirror`, `pattern_linear`, `pattern_polar`, `transform`, `offset`, `gyroid`,
+`sdf`, `text_engrave`, `text_emboss`.
+
+`python3 -m atta catalog --verbose` prints each op's `required` / `optional`
+arguments, arity and doc string — that output is the authoritative list.
+
+## Known gaps
+
+These are real limits of the current tree, not polish items:
+
+1. **Genus is a constant per recipe, not a function of the parameters.** Three
+   recipes derive their genus from a hole/cell count and rewrite
+   `expected_genus` per build (`mechanical.flange` = 7, `pattern.honeycomb_panel`
+   = 35, `lattice.gyroid_slab` = 39; the gyroid value only holds for the 3×2×1
+   slab). Change the count parameter and the declared genus no longer describes
+   the mesh, so verify's genus check will fail. Treat the genus in the table as
+   "true at `preset=nominal`".
+2. **Implicit-field recipes are dimensionally fragile.** `lattice.gyroid_slab`
+   compares a field value against a metric distance with no unit guard; the
+   delivered volume moves between ~26 200 mm³ and ~18 000 mm³ depending on
+   inputs while the topology stays legal. A `pass` verdict on an implicit recipe
+   does not by itself prove the volume is right.
+3. **Bevel is charged against the wall budget.** `verify` applies the finish
+   bevel before sampling wall thickness, so a shallow boolean intersection plus
+   a bevel can read as a knife edge (observed: a 110 mm solid measuring 0.118 mm
+   locally). Since the gate reads the minimum, one bad sample fails the part.
+4. **Boundary cases are not in CI.** `tests/test_families.py` builds each recipe
+   once at nominal. Boundary parameter sets are not re-run per commit.
+5. **`surface.fillet_network` is slow** relative to everything else (~4.4 s draft,
+   from the SDF offset resample). Budget for it in batch pipelines.
+
+## Corpus (bench only)
+
+What ships is `corpus/bench/generalization_v1.json`: **100 held-out cases**
+expressed as generic Spec v3 feature graphs, so they never call a shipped recipe.
+They are scored on the `draft` quality level.
+
+| metric | value |
+|---|---|
+| cases | 100 |
+| categories covered | 12 |
+| build success | 100 % |
+| faithful build | 80 % |
+| verify pass | 94 % |
+| op coverage | 94.5 % |
+
+All 100 cases **build**; what separates them is fidelity. `faithful build`
+(80 %) is the strict measure: built **and** every reference op expressible
+**and** declared topology matched. The 20 that miss it split cleanly, and the
+distinction matters:
+
+* **14** lose it on `ops_missing` — the source record needs grammar/L-system ops
+  (`rule` 11, `startshape` 10, `cf::symmetry` 8) that Atta does not implement, so
+  the generic template produces a legitimate but structurally simpler part.
+  These still pass `verify`; they are an expressiveness gap, not a defect.
+* **6** lose it on declared topology, and those 6 are exactly the `verify`
+  failures (94 % pass): gyroid sheet, Schwarz P, gyroid cube, porous torus,
+  porous coral and the Mandelbulb. Every one builds and delivers geometry; what
+  fails is the declared-`genus` / `n_components` check. This is the same
+  exact-implicit-topology limitation listed under known gaps.
+
+The corpus *counting* data (`corpus/coverage_report.json`,
+`corpus/license_report.json`) ships as static snapshots of a larger collection
+that is not redistributed. The raw records and the harvest tooling are not part
+of this repository; the reports are kept because they document which shape
+families exist in the wild and how their licences were tiered.

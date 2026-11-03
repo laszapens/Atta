@@ -2,10 +2,15 @@
 # -*- coding: utf-8 -*-
 """Validate Atta shape-corpus JSONL against the published schema.
 
+This is a maintainer tool for the corpus *survey*, not for Atta's runtime. The
+survey records it validates (``corpus/normalized/*.jsonl``) are not redistributed
+with this repository, so on a public checkout there is nothing to validate until
+you supply record files yourself.
+
 Usage::
 
-    python3 scripts/validate_corpus.py corpus/normalized/*.jsonl
-    python3 scripts/validate_corpus.py corpus/normalized/ --coverage
+    python3 scripts/validate_corpus.py path/to/records/*.jsonl
+    python3 scripts/validate_corpus.py path/to/records/ --coverage
 
 Exit codes: 0 = all records valid, 1 = schema errors, 2 = usage/schema error.
 """

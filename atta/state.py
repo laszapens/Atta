@@ -14,6 +14,7 @@ Layout::
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
@@ -57,12 +58,58 @@ def load(root=None) -> dict:
     return {"schema": SCHEMA, "models": {}}
 
 
+def _atomic_replace(tmp: Path, target: Path, *, attempts: int = 5) -> None:
+    """Move ``tmp`` onto ``target`` atomically, tolerating Windows sharing.
+
+    ``os.replace`` is atomic on both POSIX and Windows, so it is the right
+    primitive -- unlike ``os.rename``, which fails on Windows when the target
+    exists.  What differs is that Windows raises ``PermissionError`` (errno
+    EACCES) while another process merely has the file open for reading, which
+    a concurrent reader (a second Atta process, an editor, antivirus) can do
+    at any moment.  A short retry turns that transient sharing violation into
+    a delay instead of a failed build.
+    """
+    last = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            os.replace(str(tmp), str(target))
+            return
+        except PermissionError as exc:  # pragma: no cover - Windows behaviour
+            last = exc
+            if attempt == attempts - 1:
+                break
+            time.sleep(0.05 * (attempt + 1))
+        except OSError as exc:  # pragma: no cover - exotic filesystems
+            if getattr(exc, "errno", None) not in (errno.EACCES, errno.EBUSY,
+                                                   errno.EPERM):
+                raise
+            last = exc
+            if attempt == attempts - 1:
+                break
+            time.sleep(0.05 * (attempt + 1))
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
+    raise last if last is not None else OSError("atomic replace failed")
+
+
 def save(data: dict, root=None) -> None:
     p = models_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name("%s.tmp-%d" % (p.name, os.getpid()))
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(str(tmp), str(p))
+    # pid + thread id: two threads of one process must not share a temp name
+    tmp = p.with_name("%s.tmp-%d-%d" % (p.name, os.getpid(),
+                                        threading.get_ident()))
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        _atomic_replace(tmp, p)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def put(record: dict, root=None) -> dict:
@@ -118,9 +165,17 @@ def cache_key(*parts) -> str:
 
 def save_mesh(key: str, mesh: M.Mesh, root=None) -> Path:
     p = atta_dir(root) / "cache" / ("%s.npz" % str(key)[:64])
-    tmp = p.with_name("%s.tmp-%d.npz" % (p.stem, os.getpid()))
-    np.savez_compressed(tmp, verts=mesh.verts, faces=mesh.faces)
-    os.replace(str(tmp), str(p))
+    tmp = p.with_name("%s.tmp-%d-%d.npz" % (p.stem, os.getpid(),
+                                            threading.get_ident()))
+    try:
+        np.savez_compressed(tmp, verts=mesh.verts, faces=mesh.faces)
+        _atomic_replace(tmp, p)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
     return p
 
 

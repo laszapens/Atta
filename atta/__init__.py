@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Atta v1.1 — LLM-native parametric modeling workbench.
+"""Atta — LLM-native parametric modeling workbench.
 
 Atta is named after the leafcutter ant: small deterministic workers cutting
 precise pieces, a colony that can build structures no single ant could.

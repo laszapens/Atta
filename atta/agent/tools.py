@@ -87,11 +87,24 @@ TOOLS: list[dict] = [
     {
         "name": "atta_catalog",
         "description": (
-            "[Atta v1.1] 能力目录：recipe 清单及参数 schema、feature/constraint schema、"
-            "推荐工作流。不确定 recipe 或参数字段时先调它，不要猜。"
+            "[Atta v1.2] 能力目录。默认只返回**紧凑索引**（recipe id + 一行说明 + 类别），"
+            "体积小。要看某个 recipe 的完整参数 schema 就传 recipe=\"<id>\"（可传数组）；"
+            "verbose=true 返回全量（很大，仅在没有具体目标时偶然需要）。"
+            "不确定 recipe 或参数字段时先调它，不要猜。"
         ),
         "inputSchema": _obj({
-            "verbose": {**_BOOL, "description": "true 时返回完整 feature/参数说明（较大）"},
+            "recipe": {
+                "type": ["string", "array"],
+                "items": _STR,
+                "description": "recipe id 或 id 数组；给定时返回这些 recipe 的完整参数 schema",
+            },
+            "verbose": {**_BOOL,
+                        "description": "true 时返回全量目录（含每个 recipe 的完整参数与 "
+                                       "feature doc，很大）"},
+            "offset": {**_INT,
+                       "description": "索引翻页起点（用上一页的 next_offset）；默认 0"},
+            "feature": {**_STR,
+                        "description": "单个 graph op 的完整 args schema（如 feature=\"revolve\"）"},
         }),
     },
     {
@@ -335,15 +348,35 @@ def _clean_args(name: str, arguments: Any) -> dict:
     return {k: v for k, v in arguments.items() if k in keys and v is not None}
 
 
+#: A failure without a patch is a dead end for an agent.  When an error carries
+#: no ``fix`` of its own we substitute the best generic patch for its family.
+_FALLBACK_FIX = {
+    "bad_arguments": "call atta_catalog (or atta_spec op='schema') and copy the "
+                     "field names from the schema instead of guessing",
+    "engine_unavailable": "run atta_doctor; if atta.engine is missing, "
+                          "pip install -e . (or -e '.[all]') in the Atta checkout",
+    "timeout": "raise the host timeout, or split the work (model draft -> "
+               "preview one view) so no single call is long",
+    "file_not_found": "call atta_model / atta_preview first so the artifact "
+                      "exists, then retry with an absolute path",
+    "internal_error": "run atta_doctor --deep, then retry the same call with "
+                      "the minimal args needed to reproduce",
+}
+
+
 def _error_from(exc: BaseException) -> dict:
     """Normalise any exception into {code, message, path, fix}."""
     if isinstance(exc, AttaError):
         payload = exc.to_dict()
+        code = str(payload.get("code") or "atta_error")
         out = {
-            "code": str(payload.get("code") or "atta_error"),
+            "code": code,
             "message": str(payload.get("message") or exc),
             "path": payload.get("path"),
-            "fix": payload.get("fix"),
+            # An AttaError may carry fix=None.  An agent cannot act on that, so
+            # fall back to the family patch rather than shipping a null.
+            "fix": payload.get("fix") or _FALLBACK_FIX.get(
+                code, "run atta_doctor, then retry with the minimal args"),
         }
         if "details" in payload:
             out["details"] = payload["details"]
@@ -410,8 +443,218 @@ def _doctor(engine, args: dict) -> Any:
     return engine.doctor(deep=bool(args.get("deep", False)))
 
 
+#: One short line per recipe in the default (index) catalogue.
+_CATALOG_SUMMARY_KEYS = ("id", "name", "tags", "n_params", "expected_genus",
+                         "material")
+#: Longest one-line summary kept in the index (full text via recipe=<id>).
+_CATALOG_SUMMARY_CHARS = 72
+#: Recipe ids shown per index page.  The index is the payload an agent reads
+#: before it has picked a target, so it stays small and says how to page.
+_CATALOG_PAGE = 14
+
+
+def _one_line(text: Any, limit: int = _CATALOG_SUMMARY_CHARS) -> str | None:
+    """First sentence/clause of a description, cut on a word-ish boundary."""
+    if not isinstance(text, str):
+        return None
+    flat = " ".join(text.split())
+    if len(flat) <= limit:
+        return flat
+    cut = flat[:limit]
+    for sep in ("。", "；", "，", ". ", "; ", ", "):
+        pos = cut.rfind(sep)
+        if pos >= limit // 2:
+            return cut[:pos + len(sep)].rstrip()
+    return cut.rstrip() + "…"
+
+
+def _lean_features(features: Any) -> Any:
+    """Just the op names.  Arg names for one op come from ``feature=<op>``.
+
+    A 25-op table of arg lists costs ~2 KB for information an agent needs only
+    *after* it has chosen an op and is writing a graph, so the index keeps the
+    vocabulary and pushes the schema behind a filter.
+    """
+    if not isinstance(features, dict):
+        return features
+    return sorted(features)
+#: Fields that are already small and are what an agent needs to plan a build.
+_CATALOG_KEEP_KEYS = ("version", "recipes", "features", "constraints", "solve",
+                      "assembly", "perception", "views", "formats", "units",
+                      "qualities", "quality_profiles", "finish", "verbs",
+                      "loops", "materials")
+#: Materials ship full PBR blocks; the index only needs name/label/category.
+_MATERIAL_SUMMARY_KEYS = ("name", "label", "category")
+
+
+def _catalog_index(full: dict, limit: int = _CATALOG_PAGE) -> dict:
+    """Compact catalogue: what an agent needs to *choose*, nothing more.
+
+    The per-recipe parameter schema is the bulk of the payload and only matters
+    once a recipe has been chosen, so it moves behind ``recipe=<id>``.  Feature
+    prose (``doc``) and material PBR blocks move to ``verbose=true``.  Nothing is
+    silent: ``truncated`` / ``total_*`` / ``returned_*`` / ``omitted`` / ``hint``
+    state exactly what was left out and how to get it.
+    """
+    out: dict = {}
+    if "version" in full:
+        out["version"] = full["version"]
+
+    recipes = [r for r in (full.get("recipes") or []) if isinstance(r, dict)]
+    page = recipes[:max(0, int(limit))]
+    index = []
+    for r in page:
+        row = {"id": r.get("id")}
+        summary = _one_line(r.get("description"))
+        if summary:
+            row["summary"] = summary
+        # genus and param count are the two numbers that decide feasibility.
+        if r.get("expected_genus") is not None:
+            row["genus"] = r.get("expected_genus")
+        if r.get("n_params") is not None:
+            row["n_params"] = r.get("n_params")
+        index.append(row)
+    out["recipes"] = index
+
+    materials = full.get("materials")
+    if isinstance(materials, list):
+        # name -> label is all an agent needs to pick one; PBR lives in
+        # verbose.  A dict keeps 47 entries under 1 KB.
+        out["materials"] = {
+            m.get("name"): m.get("label") for m in materials
+            if isinstance(m, dict) and m.get("name")
+        }
+
+    if "features" in full:
+        out["features"] = _lean_features(full["features"])
+    if "constraints" in full:
+        out["constraints"] = sorted(full["constraints"])
+    if "solve" in full:
+        solve = full["solve"]
+        if isinstance(solve, dict):
+            out["solve"] = {"metrics": solve.get("metrics"),
+                            "strategies": solve.get("strategies")}
+        else:
+            out["solve"] = solve
+
+    # Small declarative blocks are folded into one container.  They are cheap
+    # individually but every top-level key costs the model a scan.
+    caps = {}
+    for key in ("assembly", "perception", "views", "formats", "units",
+                "qualities", "quality_profiles", "finish", "verbs", "loops"):
+        if key in full:
+            caps[key] = full[key]
+    if caps:
+        out["capabilities"] = caps
+
+    out["truncated"] = len(page) < len(recipes) or True
+    out["total_recipes"] = len(recipes)
+    out["returned_recipes"] = len(index)
+    out["omitted"] = ["recipes[].params", "recipes[].constraints",
+                      "recipes[].description", "features[].doc",
+                      "features[].arity", "materials[].pbr"]
+    out["hint"] = ('某个 recipe 的完整参数用 atta_catalog(recipe="<id>")；'
+                   '缺的 recipe 用 offset= 翻页；全量用 verbose=true')
+    if len(page) < len(recipes):
+        out["next_offset"] = len(page)
+    return out
+
+
+def _catalog_selected(full: dict, wanted: list[str]) -> dict:
+    """Full parameter schema for the requested recipes only."""
+    recipes = {r.get("id"): r for r in (full.get("recipes") or [])
+               if isinstance(r, dict)}
+    found, missing = [], []
+    for rid in wanted:
+        key = str(rid)
+        if key in recipes:
+            found.append(recipes[key])
+        else:
+            missing.append(key)
+    out: dict = {"version": full.get("version"), "recipes": found}
+    if missing:
+        out["missing"] = missing
+        out["missing_hint"] = ("unknown recipe id(s); call atta_catalog with no "
+                               "arguments to list valid ids")
+    if "features" in full:
+        out["features"] = full["features"]
+    if "constraints" in full:
+        out["constraints"] = full["constraints"]
+    if "solve" in full:
+        out["solve"] = full["solve"]
+    out["hint"] = "只返回被请求的 recipe 的完整参数；其余 recipe 用 index 查询"
+    return out
+
+
 def _catalog(engine, args: dict) -> Any:
-    return engine.catalog(verbose=bool(args.get("verbose", False)))
+    verbose = bool(args.get("verbose", False))
+    wanted = args.get("recipe")
+    wanted_feature = args.get("feature")
+
+    def _full() -> Any:
+        return engine.catalog(verbose=True)
+
+    if wanted_feature:
+        full = _full()
+        features = full.get("features") if isinstance(full, dict) else None
+        if not isinstance(features, dict):
+            # Unknown engine shape: never reshape something we do not recognise.
+            return full
+        op = str(wanted_feature).strip()
+        if op not in features:
+            raise AttaError(
+                "bad_arguments", "unknown feature op: %r" % op,
+                path="feature",
+                fix="use one of: %s" % ", ".join(sorted(features)),
+            )
+        return {"feature": op, "schema": features[op],
+                "hint": "其余 op 用 atta_catalog 默认索引（features 列出全部 op 名）"}
+    if wanted:
+        ids = [wanted] if isinstance(wanted, str) else list(wanted)
+        ids = [str(x) for x in ids if x]
+        # A filtered lookup needs the full recipe records even when the caller
+        # did not ask for verbose.
+        full = _full()
+        if not isinstance(full, dict) or "recipes" not in full:
+            return full
+        return _catalog_selected(full, ids)
+    if verbose:
+        full = engine.catalog(verbose=True)
+        if isinstance(full, dict):
+            # Explicitly requested, so nothing is removed — but an agent that
+            # reached for it by reflex gets an honest size warning plus the
+            # cheap path out, appended rather than dropped.
+            import json as _json
+            kb = len(_json.dumps(full, ensure_ascii=False)) // 1024
+            full = dict(full)
+            full["warning"] = (
+                "verbose=true returned the full catalogue (~%d KB). Prefer "
+                "atta_catalog(recipe=\"<id>\") or feature=\"<op>\" next time." % kb)
+        return full
+    full = engine.catalog(verbose=False)
+    if not isinstance(full, dict) or "recipes" not in full:
+        # A host/test double with a different shape: pass it straight through so
+        # the envelope contract stays the only thing we guarantee.
+        return full
+    offset = args.get("offset")
+    if offset:
+        try:
+            start = max(0, int(offset))
+        except (TypeError, ValueError):
+            raise AttaError("bad_arguments", "offset must be an integer",
+                            path="offset", fix="pass offset=30 (next_offset)")
+        recipes = [r for r in (full.get("recipes") or []) if isinstance(r, dict)]
+        page = recipes[start:start + _CATALOG_PAGE]
+        out = _catalog_index({**full, "recipes": page})
+        out["offset"] = start
+        out["total_recipes"] = len(recipes)
+        nxt = start + len(page)
+        if nxt < len(recipes):
+            out["next_offset"] = nxt
+        else:
+            out.pop("next_offset", None)
+        return out
+    return _catalog_index(full)
 
 
 def _spec(engine, args: dict) -> Any:
@@ -596,6 +839,98 @@ _HANDLERS = {
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# Reply ergonomics: cap runaway arrays, keep the readable text first
+# --------------------------------------------------------------------------- #
+
+#: Longest list echoed in full.  Beyond this an agent gets a head/tail plus an
+#: explicit "truncated" marker instead of thousands of profile points or rays.
+MAX_ARRAY = 64
+#: Hard cap on a single serialised string field (ASCII blocks stay well under).
+MAX_STRING = 20000
+
+
+def _truncate_array(values: list) -> Any:
+    """Keep a prefix/suffix and say so; never silently shrink a payload."""
+    n = len(values)
+    if n <= MAX_ARRAY:
+        return values
+    head = MAX_ARRAY // 2
+    tail = MAX_ARRAY - head
+    return {
+        "truncated": True,
+        "n_total": n,
+        "n_shown": MAX_ARRAY,
+        "note": "array truncated; %d of %d items elided — use a probe/describe "
+                "call with a narrower window instead of reading this in full"
+                % (n - MAX_ARRAY, n),
+        "head": values[:head],
+        "tail": values[-tail:],
+    }
+
+
+def _compact(value: Any, depth: int = 0, key: str | None = None) -> Any:
+    """Recursively bound array/string size without renaming any field."""
+    if depth > 12:
+        return value
+    if isinstance(value, dict):
+        return {k: _compact(v, depth + 1, k) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        # ``images`` drives host attachment lookup (MCP content blocks, the DSH
+        # plugin's collectImages); ``files`` is a tiny artifact list.  Both must
+        # stay plain lists.  ``steps``/``checks``/``issues`` stay lists too, but
+        # their *contents* are still compacted: a run step can embed a whole spec
+        # (rings, profile point lists) and would otherwise bypass truncation.
+        if key in ("images", "files"):
+            return list(value)
+        if key in ("steps", "checks", "issues"):
+            return [_compact(v, depth + 1, None) for v in value]
+        # A list of scalars is data; a list of objects is a record table.
+        if len(value) > MAX_ARRAY:
+            return _truncate_array(list(value))
+        return [_compact(v, depth + 1, key) for v in value]
+    if isinstance(value, str) and len(value) > MAX_STRING:
+        return value[:MAX_STRING] + ("\n...[truncated %d chars]"
+                                     % (len(value) - MAX_STRING))
+    return value
+
+
+#: Keys whose payload an agent reads first; hoisting them keeps the human-facing
+#: text (one-line fact card, verdict, fix) ahead of large structured blobs.
+_FIRST_KEYS = ("status", "verdict", "ok", "one_line", "text", "model_id", "next")
+
+
+def _text_first(data: Any) -> Any:
+    """Reorder a result dict so the short readable keys lead.  Values unchanged."""
+    if not isinstance(data, dict):
+        return data
+    head = {k: data[k] for k in _FIRST_KEYS if k in data}
+    if not head:
+        return data
+    head.update({k: v for k, v in data.items() if k not in head})
+    return head
+
+
+def _ergonomic(tool: str, data: Any) -> Any:
+    """Apply the reply-ergonomics pass.  Additive only: no key is renamed."""
+    data = _compact(data)
+    data = _text_first(data)
+    # describe/perceive already nest the readable line; hoist a copy so a model
+    # that reads only the first 200 chars still gets the fact card.
+    if isinstance(data, dict) and not data.get("one_line"):
+        one = None
+        facts = data.get("facts")
+        if isinstance(facts, dict):
+            one = facts.get("one_line")
+        if not one:
+            pack = data.get("perception")
+            if isinstance(pack, dict):
+                one = pack.get("text")
+        if isinstance(one, str) and one:
+            data["one_line"] = one
+    return data
+
+
 def _envelope(tool: str, ok: bool, data: Any, error: dict | None,
               started: float) -> dict:
     return {
@@ -659,7 +994,8 @@ def call_tool(name: str, args: Any = None, timeout: float | None = None) -> dict
             else:
                 data = _run_with_timeout(
                     lambda: handler(engine, clean), float(timeout), tool_name)
-            return _envelope(tool_name, True, data, None, started)
+            return _envelope(tool_name, True, _ergonomic(tool_name, data),
+                             None, started)
         except Exception as exc:  # noqa: BLE001 - the protocol gets values only
             return _envelope(tool_name, False, None, _error_from(exc), started)
 

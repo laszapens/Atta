@@ -25,12 +25,13 @@ from .runtime import (
     BlenderError,
     BlenderRuntime,
     available,
+    blender_version,
     find_blender,
     runtime,
 )
 
 __all__ = [
     "BlenderError", "BlenderRuntime", "EXPORT_FORMATS", "FINISH_DEFAULTS",
-    "RENDER_VIEWS", "VIEWS", "available", "find_blender", "material_spec",
-    "normalize_finish", "runtime",
+    "RENDER_VIEWS", "VIEWS", "available", "blender_version", "find_blender",
+    "material_spec", "normalize_finish", "runtime",
 ]

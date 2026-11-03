@@ -486,6 +486,173 @@ def _cycle_nodes(ids: list[str], deps: dict[str, list[str]]) -> set[str]:
     return found
 
 
+def _is_deferred(value: Any) -> bool:
+    """True for ``{"$param": ...}`` / ``{"$expr": ...}`` placeholders."""
+    return isinstance(value, Mapping) and ("$param" in value or "$expr" in value)
+
+
+def _has_deferred(value: Any) -> bool:
+    """True when any scalar inside a nested arg is a deferred placeholder.
+
+    A ``size: [{"$expr": "w"}, 10, 10]`` is legal but its numbers are unknown
+    until evaluation, so type validation has to stand down for that argument.
+    """
+    if _is_deferred(value):
+        return True
+    if isinstance(value, (list, tuple)):
+        return any(_has_deferred(v) for v in value)
+    if isinstance(value, Mapping):
+        return any(_has_deferred(v) for v in value.values())
+    return False
+
+
+def _is_num_list(value: Any, n: int | None = None) -> bool:
+    if not isinstance(value, (list, tuple)):
+        return False
+    if n is not None and len(value) != n:
+        return False
+    return all(_is_num(v) and math.isfinite(float(v)) for v in value)
+
+
+def _is_mat(value: Any, cols: int, min_rows: int) -> bool:
+    return (isinstance(value, (list, tuple)) and len(value) >= min_rows
+            and all(_is_num_list(row, cols) for row in value))
+
+
+def _arg_kind_ok(value: Any, kind: Any) -> tuple[bool, str]:
+    """Check one feature arg against a declared kind.
+
+    Returns ``(ok, human-readable expectation)``.  ``{"$param": ...}`` and
+    ``{"$expr": ...}`` are opaque here: their value is only known after
+    evaluation, so they are accepted and left to ``features.evaluate``.
+    """
+    if isinstance(value, Mapping) and ("$param" in value or "$expr" in value):
+        return True, "a number, expression or $param reference"
+    if _has_deferred(value):
+        # Contains $param/$expr somewhere: its concrete type is only known
+        # after evaluate() resolves params, so defer rather than false-fail.
+        return True, ""
+    if isinstance(kind, (tuple, list)):  # ("int", min)
+        base = str(kind[0])
+        if base == "int":
+            minimum = int(kind[1]) if len(kind) > 1 else None
+            if isinstance(value, bool) or not _is_num(value):
+                return False, "an integer%s" % (
+                    "" if minimum is None else " >= %d" % minimum)
+            if not float(value).is_integer():
+                return False, "a whole number"
+            if minimum is not None and int(value) < minimum:
+                return False, "an integer >= %d" % minimum
+            return True, ""
+        return _arg_kind_ok(value, base)
+    kind = str(kind)
+    if kind in ("anything", ""):
+        return True, ""
+    if kind == "number":
+        if isinstance(value, bool) or not _is_num(value) \
+                or not math.isfinite(float(value)):
+            return False, "a finite number"
+        return True, ""
+    if kind == "length":
+        if isinstance(value, bool) or not _is_num(value) \
+                or not math.isfinite(float(value)):
+            return False, "a finite length (model units)"
+        return True, ""
+    if kind == "bool":
+        return (isinstance(value, bool), "true or false")
+    if kind == "vec3":
+        return (_is_num_list(value, 3), "3 finite numbers [x, y, z]")
+    if kind == "vec3_free":
+        return (_is_num_list(value, 3), "3 finite numbers [x, y, z]")
+    if kind == "mat2":
+        return (_is_mat(value, 2, 2), "a list of >= 2 [u, v] points")
+    if kind == "mat3":
+        return (_is_mat(value, 3, 2), "a list of >= 2 [x, y, z] points")
+    if kind == "rings":
+        return (isinstance(value, (list, tuple)) and len(value) >= 2
+                and all(_is_mat(r, 3, 3) for r in value),
+                "a list of >= 2 rings, each >= 3 [x, y, z] points")
+    if kind == "loops":
+        return (isinstance(value, (list, tuple))
+                and all(_is_mat(loop, 2, 3) for loop in value),
+                "a list of closed 2D loops [[x, y], ...]")
+    if kind == "curves":
+        return (isinstance(value, (list, tuple)) and len(value) >= 2
+                and all(_is_mat(c, 3, 2) for c in value),
+                "a list of >= 2 curves of [x, y, z] points")
+    if kind == "curves4":
+        return (isinstance(value, (list, tuple)) and len(value) == 4
+                and all(_is_mat(c, 3, 2) for c in value),
+                "exactly 4 curves (bottom, right, top, left)")
+    if kind.startswith("enum"):
+        allowed = kind.split(":", 1)[1].split("|") if ":" in kind else None
+        if not isinstance(value, str):
+            return False, ("one of: %s" % "|".join(allowed) if allowed
+                           else "a string")
+        if allowed is not None and value not in allowed:
+            return False, "one of: %s" % ", ".join(allowed)
+        return True, ""
+    return True, ""
+
+
+def _validate_feature_args(op: str, args: Mapping, base: str,
+                           docs: Mapping, errors: list[dict]) -> None:
+    """Type-check feature args against the registry's declared kinds.
+
+    DEFECT 4: validation used to stop at "the required key exists", so
+    ``{"op": "box", "args": {"size": "big"}}`` validated ok and then exploded
+    inside ``features.evaluate``.  Unknown extra args were accepted too, only
+    to be rejected much later by the evaluator.  Catching both here means a
+    spec can be trusted to at least *start* evaluating.
+    """
+    required = tuple(docs.get("required") or ())
+    optional = tuple(docs.get("optional") or ())
+    allowed = set(required) | set(optional)
+
+    for key in args:
+        if not isinstance(key, str):
+            _err(errors, "bad_arg", "%s.args" % base,
+                 "feature arg names must be strings, got %r" % (key,),
+                 "Use a mapping of string keys; see atta_catalog for %s." % op)
+            continue
+        if key in _TOP_LEVEL_FEATURE_KEYS:
+            continue  # legal here: these live at the feature's top level
+        if allowed and key not in allowed:
+            _err(errors, "unknown_arg", "%s.args.%s" % (base, key),
+                 "%s has no argument %r" % (op, key),
+                 "Use one of: %s." % (", ".join(sorted(allowed)) or "(none)"))
+
+    try:
+        kinds = _load_arg_kinds(op)
+    except AttaError:
+        return
+    for key, value in args.items():
+        if not isinstance(key, str) or key not in kinds:
+            continue
+        ok, expected = _arg_kind_ok(value, kinds[key])
+        if not ok:
+            _err(errors, "bad_arg", "%s.args.%s" % (base, key),
+                 "%s.%s must be %s, got %r" % (op, key, expected, value),
+                 "Give %s a %s; see atta_catalog for %s." % (key, expected, op))
+
+
+def _load_arg_kinds(op: str) -> dict:
+    """Lazy read of ``features.arg_kinds``, so spec.py keeps its lazy import.
+
+    ``atta.features`` is an unfinished neighbour: if it will not import, the
+    caller already reports ``features_unavailable`` and arg kinds are simply
+    unavailable rather than a second error.
+    """
+    feats = sys.modules.get("atta.features")
+    if feats is None:
+        importlib.import_module("atta.features")
+        feats = sys.modules.get("atta.features")
+    getter = getattr(feats, "arg_kinds", None)
+    if not callable(getter):
+        return {}
+    return dict(getter(str(op)) or {})
+
+
 def _validate_graph(model: dict, errors: list[dict]) -> None:
     raw_params = model.get("params", {})
     if raw_params is None:
@@ -586,6 +753,8 @@ def _validate_graph(model: dict, errors: list[dict]) -> None:
                     _err(errors, "bad_arg", base + ".args.%s" % key,
                          "%s requires arg %r" % (op, key),
                          "Add %r to args; see atta_catalog for %s." % (key, op))
+            if isinstance(args, Mapping):
+                _validate_feature_args(op, args, base, docs, errors)
 
         args = feat.get("args", {})
         if args is None:
@@ -1118,6 +1287,37 @@ def _feature_has(feat: Mapping, args: Mapping, key: str) -> bool:
     return bool(args.get(key)) or bool(feat.get(key))
 
 
+#: Arguments that are irreducibly *design intent*: propose must report them in
+#: ``unresolved`` rather than invent a default.  Keyed by feature op, valued by
+#: ``(arg name, unresolved code, what is missing, fix)``.
+#:
+#: The arg names here must be the ones ``features.FEATURE_OPS`` actually
+#: accepts.  ``_propose_graph`` cross-checks every entry against the live
+#: registry and ignores the ones the registry does not declare, so a mismatch
+#: can never again make a legal spec look unresolved (v1.1 read ``profile`` and
+#: ``sections`` while the ops were ``profile_rz`` and ``rings``).
+#:
+#: There is deliberately no ``hole`` entry: Atta has no ``hole`` op (a hole is
+#: ``cylinder`` + ``difference``), and ``cylinder.center`` has a real default,
+#: so flagging it would fire on every legitimately centred cylinder.
+_DESIGN_INTENT = {
+    "revolve": ("profile_rz", "missing_profile", "the axis profile",
+                "Give args.profile_rz=[[r,z],...]."),
+    "loft": ("rings", "missing_sections", "at least two rings",
+             "Give args.rings as a list of >= 2 rings of [x,y,z] points."),
+    "sweep": ("path", "missing_path", "the sweep path",
+              "Give args.path as a point list."),
+}
+
+
+def _intent_missing(op: str, feat: Mapping, args: Mapping, key: str) -> bool:
+    """True when the design-intent arg ``key`` is absent or unusable."""
+    value = args.get(key, feat.get(key))
+    if op == "loft":  # loft needs at least two rings, not merely one
+        return not (isinstance(value, list) and len(value) >= 2)
+    return not bool(value)
+
+
 def _propose_graph(s: dict, model: dict, ledger: list[dict],
                    unresolved: list[dict]) -> None:
     if model.get("units") is None:
@@ -1139,6 +1339,11 @@ def _propose_graph(s: dict, model: dict, ledger: list[dict],
     if not isinstance(feats, list):
         return
 
+    try:
+        ops = _load_feature_ops()
+    except AttaError:
+        ops = {}  # validate_spec reports features_unavailable itself
+
     last_id = None
     for i, feat in enumerate(feats):
         if not isinstance(feat, dict):
@@ -1154,35 +1359,22 @@ def _propose_graph(s: dict, model: dict, ledger: list[dict],
 
         op = feat.get("op")
         args = feat.get("args") if isinstance(feat.get("args"), Mapping) else {}
-        if op == "hole" and not _feature_has(feat, args, "at"):
+        intent = _DESIGN_INTENT.get(op)
+        if intent is None:
+            continue
+        key, code, what, fix = intent
+        declared = ops.get(op)
+        if isinstance(declared, Mapping):
+            allowed = set(declared.get("required") or ()) | \
+                set(declared.get("optional") or ())
+            if key not in allowed:  # registry disagrees: trust the registry
+                continue
+        if _intent_missing(op, feat, args, key):
             unresolved.append({
-                "code": "missing_at",
-                "path": base + ".args.at",
-                "message": "hole has no 'at' points; hole positions are design intent",
-                "fix": "Give at least one [x,y] or [x,y,z] in args.at.",
-            })
-        if op == "revolve" and not _feature_has(feat, args, "profile"):
-            unresolved.append({
-                "code": "missing_profile",
-                "path": base + ".args.profile",
-                "message": "revolve has no profile; the axis profile is design intent",
-                "fix": "Give args.profile=[[r,z],...] or a polygon profile.",
-            })
-        if op == "loft":
-            sections = args.get("sections", feat.get("sections"))
-            if not isinstance(sections, list) or len(sections) < 2:
-                unresolved.append({
-                    "code": "missing_sections",
-                    "path": base + ".args.sections",
-                    "message": "loft needs at least two sections",
-                    "fix": "Give args.sections=[{profile:..., z:...}, ...].",
-                })
-        if op == "sweep" and not _feature_has(feat, args, "path"):
-            unresolved.append({
-                "code": "missing_path",
-                "path": base + ".args.path",
-                "message": "sweep has no path; the sweep path is design intent",
-                "fix": "Give args.path as a point list.",
+                "code": code,
+                "path": base + ".args." + key,
+                "message": "%s has no %s; it is design intent" % (op, what),
+                "fix": fix,
             })
 
     if model.get("output") is None and last_id is not None:

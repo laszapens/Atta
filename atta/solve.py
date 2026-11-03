@@ -113,15 +113,26 @@ def flatten_metrics(metrics: Mapping[str, Any] | None) -> dict:
         if found is not None:
             out[target] = found
 
+    # A derived metric is recorded only when it could actually be measured.
+    # ``wall_thickness`` reports ``min_mm: None`` for a solid part (there is no
+    # opposing surface, so there is no thickness), and writing that None via
+    # ``setdefault`` would both admit a non-measurement as a metric and block a
+    # later real value from overwriting it.
     wall = src.get("wall")
     if isinstance(wall, Mapping) and "min_mm" in wall:
-        out.setdefault("min_wall_mm", _num(wall["min_mm"]))
+        _min_mm = _num(wall["min_mm"])
+        if _min_mm is not None:
+            out.setdefault("min_wall_mm", _min_mm)
     dih = src.get("dihedral")
     if isinstance(dih, Mapping) and "max_deg" in dih:
-        out.setdefault("dihedral_max_deg", _num(dih["max_deg"]))
+        _max_deg = _num(dih["max_deg"])
+        if _max_deg is not None:
+            out.setdefault("dihedral_max_deg", _max_deg)
     curv = src.get("curvature")
     if isinstance(curv, Mapping) and "p95_deg" in curv:
-        out.setdefault("curvature_p95_deg", _num(curv["p95_deg"]))
+        _p95 = _num(curv["p95_deg"])
+        if _p95 is not None:
+            out.setdefault("curvature_p95_deg", _p95)
 
     for key, value in src.items():
         if key in out or key in {"bbox_mm", "bbox", "topology", "wall",

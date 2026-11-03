@@ -16,7 +16,7 @@ from . import mesh as M
 EPS = 1e-12
 _DET_EPS = 1e-14
 _RAY_RAYS = 32
-_RAY_TRIS = 4096
+_RAY_TRIS = 512
 
 
 # ---------------------------------------------------------------- helpers
@@ -157,20 +157,67 @@ def mass_properties(mesh: M.Mesh, density_kg_m3: float | None = None) -> dict:
 
 # ---------------------------------------------------------------- wall
 
+def concave_edge_count(mesh: M.Mesh) -> int:
+    """Number of reflex (concave) manifold edges.
+
+    A convex solid -- cube, sphere, cylinder, cone, plate -- has none: every
+    two-face edge bends away from the material.  A part with a cavity, a bore,
+    or a pocket necessarily has at least one.  This is the honest discriminator
+    between "this part has walls" and "this part is a lump of material".
+    """
+    v = np.asarray(mesh.verts, dtype=np.float64)
+    f = np.asarray(mesh.faces, dtype=np.int64)
+    if len(f) == 0:
+        return 0
+    reps, counts, order, starts, face_ids = _edge_table(v, f)
+    two = np.where(counts == 2)[0]
+    if len(two) == 0:
+        return 0
+    f0 = face_ids[order[starts[two]]]
+    f1 = face_ids[order[starts[two] + 1]]
+    rep = reps[two]
+    f1v = f[f1]
+    # The third vertex of f1 (the one not on the shared edge).
+    mask = (f1v != rep[:, 0:1]) & (f1v != rep[:, 1:2])
+    other = v[f1v[np.arange(len(f1v)), mask.argmax(axis=1)]]
+    fn, _ = _face_normals(v, f)
+    a, _, _ = _tri_arrays(v, f)
+    # Positive => the neighbour lies above f0's plane => reflex/concave edge.
+    d = np.einsum("ij,ij->i", fn[f0], other - a[f0])
+    diag = float(np.linalg.norm(v.max(axis=0) - v.min(axis=0)))
+    tol = max(1e-12, diag * 1e-7)
+    return int((d > tol).sum())
+
+
 def wall_thickness(mesh: M.Mesh, max_samples: int = 600,
                    seed: int = 0) -> dict:
     """Wall thickness by inward face-normal rays.
 
     Face centres are sampled (area is not weighted); the nearest forward hit
     gives a local thickness.  This is a sampled lower bound, never a proof.
+
+    A ray from an inward-facing surface only measures a *wall* if the part is
+    actually hollow there.  On a solid part the ray simply crosses the body and
+    reports the chord -- a 20 mm cube would "measure" a 20 mm wall, which is a
+    plausible-looking lie.  So when the mesh has no reflex edge at all (a
+    convex solid) the measurement is reported as not applicable: ``min_mm`` and
+    its percentiles are ``None`` and ``applicable`` is ``False``.
     """
     v = np.asarray(mesh.verts, dtype=np.float64)
     f = np.asarray(mesh.faces, dtype=np.int64)
     empty = {"min_mm": None, "p05_mm": None, "p50_mm": None, "p95_mm": None,
              "n_samples": 0, "n_hits": 0, "coverage": 0.0, "exact": False,
-             "note": "empty mesh"}
+             "applicable": False, "note": "empty mesh"}
     if len(f) == 0:
         return empty
+    if concave_edge_count(mesh) == 0:
+        out = dict(empty)
+        out.update({
+            "n_samples": int(min(max(1, max_samples), len(f))),
+            "note": "solid part: no opposing surface, wall thickness is not "
+                    "applicable (a convex solid has no wall to measure)",
+        })
+        return out
     fn, _ = _face_normals(v, f)
     a, b, c = _tri_arrays(v, f)
     centroids = (a + b + c) / 3.0
@@ -194,6 +241,7 @@ def wall_thickness(mesh: M.Mesh, max_samples: int = 600,
     if len(d) == 0:
         out = dict(empty)
         out.update({"n_samples": int(len(idx)), "n_hits": 0,
+                    "applicable": False,
                     "note": "no inward hit; open or zero-thickness shell"})
         return out
     return {
@@ -205,6 +253,7 @@ def wall_thickness(mesh: M.Mesh, max_samples: int = 600,
         "n_hits": int(len(d)),
         "coverage": round(float(len(d)) / max(1, len(idx)), 4),
         "exact": False,
+        "applicable": True,
         "method": "ray_face_center_inward",
     }
 
@@ -322,5 +371,5 @@ def measure(mesh: M.Mesh, *, wall: bool = False, dihedral: bool = True,
 
 
 __all__ = ["bbox_mm", "volume_mm3", "area_mm2", "centroid_mm",
-           "mass_properties", "wall_thickness", "dihedral", "curvature",
-           "vertex_normals", "measure"]
+           "mass_properties", "wall_thickness", "concave_edge_count",
+           "dihedral", "curvature", "vertex_normals", "measure"]

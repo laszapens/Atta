@@ -1,7 +1,7 @@
 {
   "name": "@atta/dsh-atta",
-  "version": "1.1.0",
-  "description": "Atta v1.1 — DSH headless modeling plugin: recipes / Spec v3 / assemblies -> numpy + Blender -> facts -> three-state verify -> GLB/OBJ/STL/BLEND (+STEP subset). Constrained solving, mates/DOF, studio previews and diagnostic passes. Ten tools, no GUI.",
+  "version": "1.2.0",
+  "description": "Atta v1.2 — DSH headless modeling plugin: recipes / Spec v3 / assemblies -> numpy + Blender -> facts -> three-state verify -> GLB/OBJ/STL/BLEND (+STEP subset). Constrained solving, mates/DOF, studio previews and diagnostic passes. Ten atta_* tools, no GUI. Degrades instead of disappearing: if the host API or the Python engine cannot be resolved it registers atta_plugin_status explaining why.",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -12,28 +12,65 @@
   },
   "files": [
     "lib",
+    "test",
     "skills",
     "cordis.patch.yml",
     "README.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.10.0"
   },
+  "//engines": ">=20.10.0 is the honest floor: this plugin uses top-level await and import.meta.url, both stable from 20.10. Node >=24.9.0 (what current DSH ships) is the tested configuration. Do NOT raise the floor to >=24: an older host would then refuse the plugin outright instead of running it.",
   "keywords": [
     "cad",
     "parametric",
     "blender",
     "llm",
-    "mcp"
+    "mcp",
+    "dsh",
+    "3d-printing",
+    "geometry"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
   },
+  "//dsh.client": "Deliberately ABSENT. Declaring dsh.client makes dsh-client-modules demand exports[\"./client\"] and throw MissingClientBundleError during Web boot if it is missing — that would break the whole Web UI over a plugin with no UI. Atta's surface is tools + a bundled skill, so it has no browser half. Re-add both fields together, and only with a real lib/client.js bundle, or not at all.",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0-rc <5",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
+    "@deepseek-ai/schemastery": ">=3.0.0",
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": ">=3.0.0"
+  },
+  "//peerDependenciesMeta": "cordis / schemastery have shipped BOTH as scoped (@deepseek-ai/*) and unscoped names. All four are declared and all four are optional, so whichever form the host provides satisfies the plugin and neither form is ever missing. The plugin resolves them at runtime (ESM import -> createRequire -> filesystem ladder over ~/.dsh/profiles) and degrades to a diagnostic tool if none resolve. Ranges are upper-bounded only where a future major would break the API; the lower bounds are deliberately open so a newly-released host is never refused.",
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "cordis": {
+      "optional": true
+    },
+    "schemastery": {
+      "optional": true
+    }
+  },
+  "//sideEffects": "The entry registers nothing at import time except resolving the host API (wrapped so it cannot throw); all registration happens in apply(ctx). Marking it side-effect-free would let a bundler drop the module.",
+  "sideEffects": true,
   "license": "MIT",
   "private": true,
   "author": {
     "name": "Atta contributors"
+  },
+  "scripts": {
+    "test": "node test/smoke.mjs",
+    "smoke": "node test/smoke.mjs"
   }
 }

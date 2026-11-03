@@ -25,6 +25,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -37,8 +38,8 @@ from ..mesh import Mesh, canonical_hash
 from .finish import normalize_finish
 
 __all__ = [
-    "BlenderError", "BlenderRuntime", "find_blender", "runtime", "available",
-    "RENDER_VIEWS",
+    "BlenderError", "BlenderRuntime", "available", "blender_version",
+    "find_blender", "runtime", "RENDER_VIEWS",
 ]
 
 WORKER = Path(__file__).resolve().with_name("worker.py")
@@ -102,11 +103,52 @@ class BlenderError(RuntimeError):
 
 # ----------------------------------------------------------------- discovery
 
+#: Where each platform's installer actually puts Blender, since a GUI install
+#: does not always update PATH (macOS especially, and Windows installer builds).
+_PLATFORM_CANDIDATES = {
+    "darwin": (
+        "/Applications/Blender.app/Contents/MacOS/Blender",
+        "/Applications/Blender/Blender.app/Contents/MacOS/Blender",
+    ),
+    "win32": (
+        r"C:\Program Files\Blender Foundation\Blender\blender.exe",
+        r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe",
+        r"C:\Program Files\Blender Foundation\Blender 4.2\blender.exe",
+        r"C:\Program Files\Blender Foundation\Blender 4.1\blender.exe",
+        r"C:\Program Files\Blender Foundation\Blender 4.0\blender.exe",
+        r"C:\Program Files\Blender Foundation\Blender 3.6\blender.exe",
+    ),
+}
+
+
+def _windows_versioned_candidates():
+    """Blender installs to a version-named directory on Windows."""
+    roots = [os.environ.get("ProgramFiles"),
+             os.environ.get("ProgramFiles(x86)"),
+             r"C:\Program Files"]
+    names = []
+    for major, minor in ((5, 2), (4, 5), (4, 4), (4, 3), (4, 2), (4, 1),
+                         (4, 0), (3, 6), (3, 5), (3, 4), (3, 3), (3, 2)):
+        names.append("Blender %d.%d" % (major, minor))
+    out = []
+    for root in filter(None, roots):
+        for name in names:
+            out.append(os.path.join(root, "Blender Foundation", name,
+                                    "blender.exe"))
+        out.append(os.path.join(root, "Blender Foundation", "Blender",
+                                "blender.exe"))
+    return out
+
+
 def find_blender() -> str | None:
     """Locate the Blender executable.
 
     ``ATTA_BLENDER`` is authoritative when set: if it does not resolve, the
     result is ``None`` rather than silently using a different build.
+
+    Discovery order: explicit override, PATH, then the per-platform install
+    locations, because a normal macOS/Windows install does not put Blender on
+    PATH and "not on PATH" must not mean "not installed".
     """
     override = os.environ.get("ATTA_BLENDER")
     if override:
@@ -114,12 +156,66 @@ def find_blender() -> str | None:
         if candidate.is_file():
             return str(candidate)
         return shutil.which(override)
-    found = shutil.which("blender")
-    if found:
-        return found
+    names = ("blender", "blender.exe") if os.name == "nt" else ("blender",)
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    known = list(_PLATFORM_CANDIDATES.get(sys.platform, ()))
     if os.name == "nt":
-        return shutil.which("blender.exe")
+        known.extend(_windows_versioned_candidates())
+    for path in known:
+        try:
+            if Path(path).is_file():
+                return path
+        except OSError:
+            continue
     return None
+
+
+#: Parsed ``blender --version`` cache keyed by executable path.
+_VERSION_CACHE: dict[str, dict | None] = {}
+_VERSION_LOCK = threading.Lock()
+
+
+def blender_version(path: str | None = None, *, timeout: float = 20.0,
+                    refresh: bool = False) -> dict | None:
+    """``{"version": "4.2.1", "version_tuple": [4, 2, 1], "path": ...}``.
+
+    Version drives behaviour (export operator names, EEVEE identity, shading
+    APIs), so callers need the real number, not just "Blender exists".  The
+    answer is cached per executable; ``--version`` costs ~0.16 s, which is too
+    much to repeat on every tool call but cheap enough to pay once.
+    """
+    exe = path or find_blender()
+    if not exe:
+        return None
+    key = str(exe)
+    if not refresh:
+        with _VERSION_LOCK:
+            if key in _VERSION_CACHE:
+                return _VERSION_CACHE[key]
+    info = None
+    try:
+        proc = subprocess.run(
+            [exe, "--version"], capture_output=True, timeout=float(timeout),
+            creationflags=(subprocess.CREATE_NO_WINDOW
+                           if os.name == "nt" else 0))
+        text = (proc.stdout or b"").decode("utf-8", "replace")
+        first = text.strip().splitlines()[0] if text.strip() else ""
+        # "Blender 4.2.1 LTS" / "Blender 3.6.5"
+        parts = first.replace("Blender", "").split()
+        nums = parts[0].split(".") if parts else []
+        triple = [int(x) for x in nums[:3] if x.isdigit()]
+        if triple:
+            info = {"version": ".".join(str(n) for n in triple),
+                    "version_tuple": triple, "path": key,
+                    "raw": first.strip()}
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        info = None
+    with _VERSION_LOCK:
+        _VERSION_CACHE[key] = info
+    return info
 
 
 def available() -> bool:

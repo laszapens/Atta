@@ -1,4 +1,4 @@
-# Internal interfaces (v1.1)
+# Internal interfaces
 
 This file is the contract between parallel workstreams. Do not change a
 signature without updating this file and every caller.

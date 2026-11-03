@@ -4,15 +4,17 @@
 
 What this measures (and what it deliberately refuses to flatter)
 ---------------------------------------------------------------
-``docs/SHAPE_COVERAGE_REQUIREMENTS.md`` §9 asks one question: can Atta build shapes
+The held-out bench asks one question: can Atta build shapes
 it was **never given a recipe for**?  So every case here is built from the generic
 feature-graph surface (``atta.spec`` v3: primitives + revolve/loft/sweep/extrude/
-coons/gordon + booleans + pattern + transform + thicken), **never** by calling the
-21 shipped recipes.
+coons/gordon + booleans + pattern + transform + thicken), **never** by calling a
+shipped recipe.
 
 Protocol (recorded in ``corpus/bench/generalization_v1.json`` under ``protocol``):
 
-1. **Selection.** Records come from ``corpus/normalized/*.jsonl``.  A record is
+1. **Selection.** Records come from the corpus survey (``corpus/normalized/*.jsonl``,
+   not redistributed; the resulting case list ships as
+   ``corpus/bench/generalization_v1.json``).  A record is
    *held out* when its ``shape.family`` does not map to a shipped recipe
    (``EXCLUDED_FAMILIES``; every entry carries the recipe it is covered by).
    Up to 30% of the set may be *variants* of shipped families built with
@@ -37,7 +39,8 @@ Honesty notes that the report must not bury:
 * ``param_recovery`` is **near-tautological** under this design: the graph is
   parameterised with the same numbers it is scored against, so it measures the
   spec pipeline's dimensional fidelity (mapping + unit conversion + boolean
-  survival), *not* generalization.  It is reported because §9 asks for it.
+  survival), *not* generalization.  It is reported for completeness, not as a
+  generalization score.
 * ``build_success`` (model_id returned) is cheap to satisfy for a graph that the
   template already knows how to make.  The discriminating metric is
   ``faithful_build_success`` = built AND all reference ops expressible AND the
@@ -46,8 +49,9 @@ Honesty notes that the report must not bury:
 
 Usage::
 
-    python3 scripts/run_bench.py --cases corpus/bench/generalization_v1.json \
-        --out corpus/bench/generalization_v1.json          # re-run in place
+    python3 scripts/run_bench.py --out /tmp/bench.json    # score, do not touch the shipped file
+    python3 scripts/run_bench.py                          # WARNING: rewrites the
+                                                          # shipped bench file in place
     python3 scripts/run_bench.py --regenerate \
         --out corpus/bench/generalization_v1.json          # rebuild case list
     python3 scripts/run_bench.py --cases ... --out /tmp/x.json --limit 10
@@ -1407,7 +1411,7 @@ def _stage(case):
 def protocol_doc():
     return {
         "name": BENCH_VERSION,
-        "requirement": "docs/SHAPE_COVERAGE_REQUIREMENTS.md §9",
+        "requirement": "docs/SHAPE_COVERAGE.md (held-out bench section)",
         "surface": "generic Spec v3 feature graph (atta.spec); shipped recipes are never called",
         "quality": "draft",
         "case_budget_s": CASE_BUDGET_S,

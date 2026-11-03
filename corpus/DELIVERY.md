@@ -1,6 +1,7 @@
 # DELIVERY — 语料出处与再分发清单 (attribution manifest)
 
-> 生成于 2026-11-02 21:28 · 由 `work/harvest/delivery/make_delivery.py` 从**当前** `corpus/normalized/*.jsonl` 现算，不是抄来的数字。
+> 生成于 2026-11-02 21:28，从当时采集到的记录现算，不是抄来的数字。
+> 本文件是那次采集的**静态快照**：原始记录、原始快照与采集脚本均不在本仓库内分发。
 
 ## 0. 复用口径（先读这一段）
 
@@ -15,10 +16,12 @@
 | Tier C 进 accepted 吗？ | 不进。只留元数据 + 拒绝原因。 |
 | 语料代码进 Atta 了吗？ | 没有。见上方复用口径。 |
 
-机器可复核：`python3 work/tools/audit_provenance.py` 打印 `code by tier`，
-只有 Tier A 有 code；任何 B/C 出现 code 即失败（exit != 0）。
+下表是这个口径的实测结果：只有 Tier A 携带 `code`，B/C 的 `code` 一律清空。
+原始记录不在本仓库内，因此这条断言只能在内部采集环境里复跑，无法在公开 checkout 上重验。
 
 ## 1. 数字（实测）
+
+下表是采集快照的计数。原始记录、拒绝记录与采集脚本都不随仓库分发。
 
 | 指标 | 数量 |
 |---|---|
@@ -27,22 +30,27 @@
 | ├ Tier A | 379 |
 | ├ Tier B | 182 |
 | └ Tier C（accepted 之外） | 12 |
-| accepted 中带 `code` 的记录 | 352（应当且仅为 Tier A） |
+| reference_only（accepted 但无参数） | 41 |
+| accepted 中带 `code` 的记录 | 见 `license_report.json:policy_checks`（Tier B/C 带 code 的清单必须为空，实测为空） |
 | 带 code 且非 Tier A 的记录 | **0** |
-| 拒绝记录（`corpus/rejected/`） | 159 |
+| 拒绝记录（采集时的 rejected 集合，未分发） | 159 |
 | 不同出处（source） | 24 |
 
 按 kind：build123d 3、cadquery 42、docs 21、mesh 139、openscad 299、other 51、sdf 6
 
 按 category：architecture 27、assembly 85、lattice 15、material_finish 19、mechanical 99、organic 20、pattern 46、primitive 70、product 51、surface 95、text 12、tolerance 22
 
-> 口径提醒：`corpus.py stats` 的 `reference_only` = accepted 但**无参数**（§3.1 降权）；
-> `validate_corpus.py` 的 `reference-only` = **未 accepted**（即 Tier C）。两者不是同一个数。
+> 上表与同目录 `license_report.json`（`total_records` / `accepted` / `substantive` /
+> `reference_only` / `by_tier`）一致；`coverage_report.json` 的 `categories[].accepted`
+> 给出按类别的同一口径拆分。
+>
+> 口径提醒：采集脚本 `corpus.py stats` 的 `reference_only` = accepted 但**无参数**；
+> `scripts/validate_corpus.py` 的 `reference-only` = **未 accepted**（即 Tier C）。两者不是同一个数。
 
 ## 2. 逐出处署名（accepted）
 
 每一行的 licence 取自记录 `source.license_spdx`（抓取时从仓库 LICENSE / 平台页面实取，
-并由 `work/tools/audit_provenance.py` 复核 `source` 是否真的在盘上）。
+并逐条复核 `source` 是否真的在盘上）。
 **逐条**的 `source.url / path / commit / retrieved_at` 在对应 JSONL 行里，
 另有 `corpus/license_report.json`（QA 组）做逐域名复核。
 
@@ -107,13 +115,13 @@ Tier C（GPL/AGPL/unknown/无证）按 BRIEF 硬规则 1 **禁止**写入 `code`
 
 ## 3. 平台级结果（模型社区）
 
-详见 `work/harvest/vault/PLATFORMS.md`（含证据）与 `work/harvest/vault/NOTE.md`。
+下表是平台级取数结论（原始证据随采集快照保管，不在本仓库内分发）。
 
 | 平台 | 结果 | 依据 |
 |---|---|---|
-| Printables (api.printables.com GraphQL) | **可达**：790 个 licence-clean 模型被枚举，517 个取到完整元数据，363 条记录按配额收敛为 118 条 | `work/harvest/vault/NOTE.md` §1 |
+| Printables (api.printables.com GraphQL) | **可达**：790 个 licence-clean 模型被枚举，517 个取到完整元数据，363 条记录按配额收敛为 118 条 | 采集快照 §1 |
 | Printables（网页） | **被 Cloudflare 拦**（含 sp.py TLS 指纹） | `PLATFORMS.md` §1 |
-| Thingiverse | 页面元数据可读，但唯一参数源 Customizer 被 robots.txt `Disallow`；**贡献 0 条 mesh 记录** | `work/harvest/vault/NOTE.md` §4 |
+| Thingiverse | 页面元数据可读，但唯一参数源 Customizer 被 robots.txt `Disallow`；**贡献 0 条 mesh 记录** | 采集快照 §4 |
 | Thangs / GrabCAD | 被 Cloudflare / CloudFront 拦 | `PLATFORMS.md` §1 |
 | Instructables | JS-only，正文取不到 | `PLATFORMS.md` §1 |
 | Wikifactory | 返回空 body | `PLATFORMS.md` §1 |
@@ -123,19 +131,18 @@ Tier C（GPL/AGPL/unknown/无证）按 BRIEF 硬规则 1 **禁止**写入 `code`
 
 ## 4. 数据集（kind=dataset，全部 Tier C，只做许可结论）
 
-结论表见 `work/reports/datasets_license.md`。这些记录是**许可元数据**，
+这些记录是**许可元数据**，
 不是可用语料：没有一份数据集许可允许我们把它的几何并入 Atta。
 
 ## 5. 复现
 
+公开 checkout 上没有原始记录可供复算，因此本文件**不可就地重跑**；它是采集时的
+结论快照。仓库内可复跑的只有语料 schema 校验（需要你自己提供 JSONL）：
+
 ```bash
-cd "$ATTA_ROOT"
-python3 work/tools/corpus.py stats corpus/normalized/*.jsonl   # accepted/substantive 口径
-python3 work/tools/audit_provenance.py                          # 必须 exit 0（code 只在 Tier A）
-python3 scripts/validate_corpus.py corpus/normalized/*.jsonl --coverage
-python3 work/tools/analyze.py                                   # family 聚类 + 可提名性
-python3 work/harvest/delivery/make_delivery.py                  # 重新生成本文件
+python3 scripts/validate_corpus.py path/to/records/*.jsonl --coverage
 ```
 
-原始快照（逐字节 + LICENSE 副本 + `_provenance.json`）在 `corpus/raw/`，
-按 `github/<owner>_<repo>/`、`deep/<domain>/<date>/`、`vault/<platform>/<date>/` 分目录。
+机器可读的同批结论在 `corpus/license_report.json` 与 `corpus/coverage_report.json`。
+原始快照（逐字节 + LICENSE 副本 + `_provenance.json`）与采集脚本由维护者单独保管，
+不随仓库分发。

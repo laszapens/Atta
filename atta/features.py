@@ -87,6 +87,67 @@ def extra_ops() -> dict:
     return dict(_EXTRA_OPS)
 
 
+#: Declared argument *kinds*, so spec validation can reject a bad arg before
+#: geometry runs.  ``evaluate`` has always enforced these (``_num``/``_mat``/
+#: ``vec``/``integer``/``flag``); the point of this table is that
+#: ``spec.validate_spec`` can apply the same rules without evaluating.
+#:
+#: Kinds: number (finite scalar), int (whole, optionally bounded), length
+#: (finite scalar in model units), vec3 (3 finite numbers), vec3_free (3 finite
+#: numbers, not unit-scaled), mat2 (n>=2 x 2), mat3 (n>=3 x 3), rings (>=2
+#: mat3), rings2 (>=2 x 2), loops (>=1 mat2), curves (>=2 mat3), curves4
+#: (exactly 4 mat3), bool, enum (any string), enum:<a|b|...>, strings (list of
+#: strings), points (>=1 vec3-or-vec2), anything (defer to the op).
+_ARG_TYPES = {
+    "box": {"size": "vec3", "center": "vec3", "align": "anything"},
+    "cylinder": {"radius": "length", "height": "length", "center": "vec3",
+                 "axis": "enum:x|y|z", "segments": ("int", 3), "caps": "bool"},
+    "sphere": {"radius": "length", "center": "vec3", "segments": ("int", 3),
+               "rings": ("int", 2)},
+    "cone": {"r_bottom": "length", "r_top": "length", "height": "length",
+             "center": "vec3", "axis": "enum:x|y|z", "segments": ("int", 3)},
+    "torus": {"major_radius": "length", "minor_radius": "length",
+              "center": "vec3", "axis": "enum:x|y|z",
+              "seg_major": ("int", 3), "seg_minor": ("int", 3)},
+    "revolve": {"profile_rz": "mat2", "segments": ("int", 3),
+                "axis": "enum:x|y|z", "caps": "bool"},
+    "loft": {"rings": "rings", "closed_ring": "bool", "caps": "bool"},
+    "sweep": {"section_xy": "mat2", "path": "mat3", "closed": "bool",
+              "twist_deg": "number", "scale_end": "number"},
+    "coons": {"edges": "curves4", "u_samples": ("int", 2),
+              "v_samples": ("int", 2), "flip": "bool"},
+    "gordon": {"u_curves": "curves", "v_curves": "curves",
+               "u_samples": ("int", 2), "v_samples": ("int", 2),
+               "flip": "bool"},
+    "extrude": {"loop_xy": "mat2", "height": "length",
+                "direction": "vec3_free", "caps": "bool", "holes_xy": "loops"},
+    "thicken": {"thickness": "length", "offset": "number"},
+    "lobes": {"count": ("int", 0), "amplitude": "number",
+              "phase_deg": "number", "twist_deg": "number"},
+    "union": {}, "difference": {}, "intersection": {},
+    "mirror": {"plane": "enum:x|y|z"},
+    "pattern_linear": {"count": ("int", 1), "spacing": "length",
+                       "axis": "enum:x|y|z"},
+    "pattern_polar": {"count": ("int", 1), "axis": "enum:x|y|z",
+                      "angle_deg": "number", "center": "vec3"},
+    "transform": {"translate": "vec3", "rotate_deg": "vec3_free",
+                  "scale": "anything", "pivot": "vec3"},
+}
+
+
+def arg_kinds(op: str) -> dict:
+    """Declared arg kinds for ``op`` (empty when nothing is declared).
+
+    Family ops declare theirs via ``register_op(..., args={...})``; built-ins
+    come from :data:`_ARG_TYPES`.  A missing entry means "not declared", and
+    validation then only checks that the key is allowed.
+    """
+    entry = FEATURE_OPS.get(str(op)) or {}
+    declared = entry.get("args")
+    if isinstance(declared, dict):
+        return dict(declared)
+    return dict(_ARG_TYPES.get(str(op)) or {})
+
 def register_op(name, spec, fn):
     """Register a geometry op contributed by a family module.
 
@@ -116,6 +177,18 @@ def register_op(name, spec, fn):
     for key in ("lengths", "vectors", "ints"):
         if spec.get(key):
             entry[key] = tuple(spec[key])
+    # Declared arg kinds let spec.validate_spec type-check args without
+    # building geometry.  An op may pass ``args={name: kind}`` verbatim, or
+    # let the kinds be derived from lengths/vectors/ints.
+    kinds = dict(spec.get("args") or {})
+    for key in spec.get("lengths") or ():
+        kinds.setdefault(key, "length")
+    for key in spec.get("vectors") or ():
+        kinds.setdefault(key, "vec3")
+    for key in spec.get("ints") or ():
+        kinds.setdefault(key, ("int", 0))
+    if kinds:
+        entry["args"] = kinds
     FEATURE_OPS[name] = entry
     _EXTRA_OPS[name] = fn
     return fn

@@ -1,21 +1,11 @@
-# Atta v1.1 — Architecture
+# Architecture
 
-> One Atta. Blender-first. LLM-native. Small surface, hard receipts.
+> Blender-first. LLM-native. Small surface, hard receipts.
 
 ## 1. The product decision
 
-Atta v1.1 is the single agent-facing modeling product. Everything else on
-this machine is either a reference implementation or a practice project:
-
-```
-归一（blender）/workbench + attaz   reference for Blender residency and recipes
-Atta (B-rep, 88 ops)                reference for spec/verify/receipts/jobs
-Atta2                               reference for a lean Blender-first prototype
-Atta-Cad                            separate 2D drawing product, not this kernel
-Atta-D / Atta-Cuwork                practice projects and notes
-```
-
-v1.1 keeps the ideas that survived contact with real work:
+Atta is the agent-facing modeling kernel of this repository. The design keeps
+the ideas that survived contact with real work:
 
 * a small number of semantic verbs;
 * a declarative spec that can rebuild the model;
@@ -26,7 +16,7 @@ v1.1 keeps the ideas that survived contact with real work:
 
 It deliberately drops:
 
-* 88 flat ops as the agent surface;
+* a large flat op surface as the agent interface (25 graph ops, 10 verbs);
 * GUI-mimicking click/selection scripts;
 * global `params.json` shared across projects;
 * model state that cannot be rebuilt from a spec;
@@ -316,7 +306,7 @@ spec(kind=assembly) -> model -> describe(dof) -> verify(mates/collisions) -> del
 Draft geometry is pure numpy. Final geometry is evaluated through Blender
 modifiers before verify, so the verdict sees bevels and smoothing.
 
-## 13. Non-goals for v1.1
+## 13. Non-goals
 
 * B-rep/NURBS as the primary kernel (STEP exists only as a delivery subset).
 * Photoreal output as an acceptance goal (studio previews are judgement, not metrology).

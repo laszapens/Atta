@@ -84,16 +84,33 @@ FEATURE_OPS = {
                  "doc": "cylinder"},
     "difference": {"required": ["inputs"], "optional": [], "doc": "difference"},
     "union": {"required": ["inputs"], "optional": [], "doc": "union"},
-    "hole": {"required": ["at"], "optional": ["diameter"], "doc": "hole"},
-    "revolve": {"required": ["profile"], "optional": ["angle"], "doc": "revolve"},
-    "loft": {"required": ["sections"], "optional": [], "doc": "loft"},
-    "sweep": {"required": ["path"], "optional": [], "doc": "sweep"},
+    # No "hole" op: Atta expresses a hole as cylinder + difference (see
+    # atta/features.py).  The fake used to invent one, which is how a dead
+    # `op == "hole"` branch in propose_spec stayed green for a whole release.
+    # The arg names below are the real ones; a fake registry that disagrees
+    # with atta.features is what hid DEFECT 1.
+    "revolve": {"required": ["profile_rz"], "optional": ["segments"],
+                "doc": "revolve"},
+    "loft": {"required": ["rings"], "optional": ["caps"], "doc": "loft"},
+    "sweep": {"required": ["path"], "optional": ["closed"], "doc": "sweep"},
 }
+
+
+#: The real arg-kind table, captured before the fake module replaces
+#: ``atta.features``.  The fake supplies the *shape* (which ops exist, which
+#: args they take) but deliberately reuses the real kinds, so a test can catch
+#: a type regression in the shipped table rather than in a copy of it.
+from atta import features as _real_features  # noqa: E402
+
+_REAL_ARG_KINDS = _real_features.arg_kinds
 
 
 def install_features(monkeypatch):
     mod = types.ModuleType("atta.features")
     mod.FEATURE_OPS = dict(FEATURE_OPS)
+    # expose the real kinds for the ops this fake declares
+    mod.arg_kinds = lambda op: (_REAL_ARG_KINDS(op)
+                                if op in FEATURE_OPS else {})
     monkeypatch.setitem(sys.modules, "atta.features", mod)
     return mod
 
@@ -288,7 +305,6 @@ def test_graph_propose_defaults_and_unresolved(monkeypatch):
     install_features(monkeypatch)
     features = [
         {"id": "plate", "op": "box", "args": {"size": [80, 50, 6]}},
-        {"id": "bore", "op": "hole", "args": {}},
         {"id": "body", "op": "revolve", "args": {}},
         {"id": "neck", "op": "loft", "args": {}},
         {"id": "wire", "op": "sweep", "args": {}},
@@ -301,7 +317,7 @@ def test_graph_propose_defaults_and_unresolved(monkeypatch):
     out = S.propose_spec(spec)
     assert not out["ok"]
     assert {u["code"] for u in out["unresolved"]} == {
-        "missing_at", "missing_profile", "missing_sections", "missing_path"}
+        "missing_profile", "missing_sections", "missing_path"}
     assert out["spec"]["model"]["units"] == "mm"
     assert out["spec"]["model"]["segments"] == 64
     assert out["spec"]["quality"] == "draft"
@@ -309,6 +325,43 @@ def test_graph_propose_defaults_and_unresolved(monkeypatch):
     assumed = {e["path"] for e in out["assumption_ledger"]}
     assert {"$.model.units", "$.model.segments", "$.quality",
             "$.material"} <= assumed
+
+
+def test_propose_accepts_real_revolve_and_loft_arg_names(monkeypatch):
+    """DEFECT 1 regression: propose must read the arg names the ops declare.
+
+    v1.1 checked ``profile`` (revolve's arg is ``profile_rz``) and ``sections``
+    (loft's arg is ``rings``), so a *legal* spec validated ok=True but propose
+    reported ok=False with a bogus missing_profile/missing_sections.
+    """
+    install_features(monkeypatch)
+    features = [
+        {"id": "body", "op": "revolve",
+         "args": {"profile_rz": [[0, 0], [30, 0], [30, 90], [0, 90]]}},
+        {"id": "neck", "op": "loft",
+         "args": {"rings": [[[0, 0, 0], [10, 0, 0], [10, 10, 0]],
+                            [[0, 0, 20], [12, 0, 20], [12, 12, 20]]]}},
+    ]
+    spec = graph_spec(features, output="neck")
+    assert S.validate_spec(spec)["ok"]
+    out = S.propose_spec(spec)
+    assert out["ok"], (out["errors"], out["unresolved"])
+    assert out["unresolved"] == []
+
+
+def test_propose_intent_args_match_the_live_feature_registry():
+    """The design-intent arg names must exist in the real FEATURE_OPS.
+
+    This is the root cause of DEFECT 1: the names were hand-written and drifted
+    from the registry.  Reading the registry makes drift a test failure.
+    """
+    from atta import features
+
+    for op, (key, _code, _what, _fix) in S._DESIGN_INTENT.items():
+        assert op in features.FEATURE_OPS, op
+        spec = features.FEATURE_OPS[op]
+        allowed = set(spec["required"]) | set(spec["optional"])
+        assert key in allowed, (op, key, sorted(allowed))
 
 
 # ------------------------------------------------------------------ constraints
@@ -481,3 +534,83 @@ def test_graph_params_must_be_finite_numbers():
     v = S.validate_spec(spec)
     assert not v["ok"]
     assert any(e["code"] in ("bad_param", "bad_params") for e in v["errors"])
+
+
+# ------------------------------------------------------- feature arg contracts
+
+def test_validate_rejects_wrong_arg_types(monkeypatch):
+    """DEFECT 4: bad arg *types* must fail validate, not explode in evaluate."""
+    install_features(monkeypatch)
+    cases = [
+        ({"op": "box", "args": {"size": "big"}}, "args.size"),
+        ({"op": "box", "args": {"size": [10, 10]}}, "args.size"),
+        ({"op": "box", "args": {"size": [10, 10, "tall"]}}, "args.size"),
+        ({"op": "cylinder", "args": {"radius": "wide", "height": 10}},
+         "args.radius"),
+        ({"op": "cylinder", "args": {"radius": 5, "height": 10,
+                                     "segments": 3.5}}, "args.segments"),
+        ({"op": "cylinder", "args": {"radius": 5, "height": 10,
+                                     "segments": 2}}, "args.segments"),
+        ({"op": "cylinder", "args": {"radius": 5, "height": 10,
+                                     "caps": "maybe"}}, "args.caps"),
+        ({"op": "cylinder", "args": {"radius": 5, "height": 10,
+                                     "axis": "w"}}, "args.axis"),
+        ({"op": "revolve", "args": {"profile_rz": [[0, 0], [10, "up"]]}},
+         "args.profile_rz"),
+        ({"op": "revolve", "args": {"profile_rz": [[0, 0]]}},
+         "args.profile_rz"),
+        ({"op": "loft", "args": {"rings": [[[0, 0, 0], [1, 0, 0], [0, 1, 0]]]}},
+         "args.rings"),
+    ]
+    for feat, where in cases:
+        feat = dict(feat, id="f")
+        out = S.validate_spec(graph_spec([feat], output="f"))
+        assert not out["ok"], feat
+        assert any(where in e["path"] for e in out["errors"]), (feat,
+                                                               out["errors"])
+        err = next(e for e in out["errors"] if where in e["path"])
+        assert err["fix"], feat
+
+
+def test_validate_rejects_unknown_feature_arg(monkeypatch):
+    """An unknown arg used to validate ok and fail later inside evaluate."""
+    install_features(monkeypatch)
+    feat = {"id": "f", "op": "box",
+            "args": {"size": [10, 10, 10], "colour": "red"}}
+    out = S.validate_spec(graph_spec([feat], output="f"))
+    assert not out["ok"]
+    err = next(e for e in out["errors"] if e["code"] == "unknown_arg")
+    assert err["path"] == "$.model.features[0].args.colour"
+    assert "size" in err["fix"]  # lists the args that are legal
+
+
+def test_validate_accepts_deferred_param_args(monkeypatch):
+    """A $param/$expr arg has no type until evaluate, so validation defers."""
+    install_features(monkeypatch)
+    feats = [{"id": "f", "op": "box",
+              "args": {"size": [{"$param": "w"}, {"$expr": "h*2"}, 10]}}]
+    spec = graph_spec(feats, output="f")
+    spec["model"]["params"] = {"w": 20, "h": 5}
+    out = S.validate_spec(spec)
+    assert out["ok"], out["errors"]
+
+
+def test_arg_kinds_cover_every_declared_kind_entry():
+    """A kind table entry must name only args the op really declares.
+
+    Catches both drift directions: a dead kind for a removed arg, and a
+    required arg left without a type (which is how ``size: "big"`` slipped
+    through).  Family ops may legitimately declare no kinds, so only ops with
+    a non-empty kind table are checked for completeness.
+    """
+    from atta import features
+
+    for op, spec in features.FEATURE_OPS.items():
+        declared = set(spec["required"]) | set(spec["optional"])
+        kinds = features.arg_kinds(op)
+        extra = set(kinds) - declared
+        assert not extra, (op, "kinds for undeclared args", sorted(extra))
+        if kinds and op in features._ARG_TYPES:
+            missing = declared - set(kinds)
+            assert not missing, (op, "declared args without a kind",
+                                 sorted(missing))

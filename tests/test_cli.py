@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from atta.version import VERSION
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -25,7 +27,9 @@ def run(args, home, timeout=120):
 def test_version(tmp_path):
     p = run(["--version"], tmp_path)
     assert p.returncode == 0
-    assert p.stdout.strip() == "1.1.0"
+    # Derived from the single source of truth, never a hardcoded literal:
+    # a release bump must not be able to break this test.
+    assert p.stdout.strip() == VERSION
 
 
 def test_doctor_json_envelope(tmp_path):

@@ -1,0 +1,60 @@
+# --- Atta runtime state -------------------------------------------------------
+# The workspace Atta writes into (models.json, out/, cache/, blender jobs).
+# Can be relocated with ATTA_HOME; never commit it.
+_atta/
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# --- Node / DSH plugin -------------------------------------------------------
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+lib/.build.lock
+lib/.build-ok
+
+# --- Generated artifacts -----------------------------------------------------
+# Machine-specific MCP config produced by `python3 -m atta.agent.install`.
+# The template is plugins/atta/.mcp.json.example.
+plugins/atta/.mcp.json
+
+# Third-party corpus material. Never shipped: the raw snapshots, the normalised
+# records and the rejections are other people's geometry under mixed licences.
+# Only corpus/bench/ and the two report JSONs are redistributed.
+corpus/raw/
+corpus/normalized/
+corpus/rejected/
+corpus/nominations.jsonl
+
+# Blender / export by-products
+*.blend1
+*.blend2
+*.tmp
+renders/
+*.step
+
+# --- Editors / OS ------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db

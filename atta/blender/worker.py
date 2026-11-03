@@ -217,21 +217,48 @@ def _make_material(spec: dict):
 
 
 def _shade_smooth(obj, angle_deg: float) -> str:
-    """Smooth-by-angle, with graceful version fallbacks. Returns method used."""
+    """Smooth-by-angle, with graceful version fallbacks. Returns method used.
+
+    Four eras, all verified against a real Blender where possible:
+
+    * 4.1+  ``object.shade_smooth_by_angle`` bakes sharp edges; no modifier is
+      left behind, so nothing downstream has to re-apply it.  Preferred.
+    * 4.1   ``object.shade_auto_smooth`` also exists but installs a
+      "Smooth by Angle" geometry-nodes modifier, which would then be baked a
+      second time by ``export_apply``.  Only a fallback.
+    * 2.8x-4.0  ``Mesh.use_auto_smooth`` + ``Mesh.auto_smooth_angle`` is the
+      *only* mechanism -- the per-angle operators do not exist yet.  Without
+      this branch every face is simply flagged smooth, which silently loses the
+      angle threshold and makes hard edges render soft (a real visual bug on
+      those versions, not a cosmetic one).
+    * anything older still exposes neither, and all-smooth is the honest best
+      effort (reported as ``polygon_use_smooth``).
+    """
     mesh = obj.data
     for poly in mesh.polygons:
         poly.use_smooth = True
+    angle = math.radians(float(angle_deg))
     for op in ("shade_smooth_by_angle", "shade_auto_smooth"):
         func = getattr(bpy.ops.object, op, None)
         if func is None:
             continue
         try:
-            func(angle=math.radians(float(angle_deg)))
+            func(angle=angle)
             return op
         except Exception:  # noqa: BLE001
             continue
+    # 2.8x - 4.0: the legacy auto-smooth flag IS the angle threshold.
+    legacy = getattr(mesh, "use_auto_smooth", None)
+    if legacy is not None:
+        try:
+            mesh.use_auto_smooth = True
+            if hasattr(mesh, "auto_smooth_angle"):
+                mesh.auto_smooth_angle = angle
+            return "use_auto_smooth"
+        except Exception:  # noqa: BLE001
+            pass
     try:
-        mesh.set_sharp_from_angle(angle=math.radians(float(angle_deg)))
+        mesh.set_sharp_from_angle(angle=angle)
         return "set_sharp_from_angle"
     except Exception:  # noqa: BLE001
         pass
@@ -249,6 +276,34 @@ def _shade_flat(obj) -> None:
         bpy.ops.object.shade_flat()
     except Exception:  # noqa: BLE001
         pass
+
+
+def _apply_modifier(obj, name: str) -> None:
+    """Apply a modifier with a context override.
+
+    ``object.modifier_apply`` polls on the *active* object, so it raises
+    "context is incorrect" whenever the active object is not the one being
+    modified -- which is exactly the situation in a headless worker that
+    builds several objects in a row.  ``temp_override`` is 3.2+; older builds
+    (and some operator contexts) still need the active object set by hand, so
+    both are attempted before giving up.
+    """
+    try:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+    except Exception:  # noqa: BLE001
+        pass
+    override = getattr(bpy.context, "temp_override", None)
+    if override is not None:
+        try:
+            with override(object=obj, active_object=obj,
+                          selected_objects=[obj],
+                          selected_editable_objects=[obj]):
+                bpy.ops.object.modifier_apply(modifier=name)
+            return
+        except Exception:  # noqa: BLE001 - fall through to the plain call
+            pass
+    bpy.ops.object.modifier_apply(modifier=name)
 
 
 def _build(verts, faces, finish: dict, material_spec: dict):
@@ -290,7 +345,7 @@ def _build(verts, faces, finish: dict, material_spec: dict):
         modifier.angle_limit = math.radians(float(bevel.get("angle_deg", 40.0)))
         modifier.use_clamp_overlap = True
         try:
-            bpy.ops.object.modifier_apply(modifier=modifier.name)
+            _apply_modifier(obj, modifier.name)
             info["applied"].append("bevel")
             info["bevel"] = {"width": width, "segments": segments,
                              "angle_deg": float(bevel.get("angle_deg", 40.0))}
@@ -1129,6 +1184,94 @@ def _eval(job: Path, req: dict):
             "degraded": build_info["degraded"]}
 
 
+def _export_glb(target: Path) -> None:
+    """glTF export.  Operator location is stable across 3.x/4.x/5.x, but the
+    set of accepted keywords is not: ``export_apply`` and ``export_yup`` exist
+    in 3.6+, while older builds reject unknown kwargs outright.  Try the rich
+    call, then progressively drop optional kwargs.
+    """
+    attempts = (
+        {"use_selection": True, "export_apply": True, "export_yup": True},
+        {"use_selection": True, "export_apply": True},
+        {"use_selection": True},
+        {},
+    )
+    last = None
+    for extra in attempts:
+        try:
+            bpy.ops.export_scene.gltf(
+                filepath=str(target), export_format="GLB", **extra)
+            return
+        except TypeError as exc:      # unknown kwarg on this Blender
+            last = exc
+            continue
+        except Exception as exc:      # noqa: BLE001
+            last = exc
+            break
+    raise RuntimeError("glTF export failed: %s" % (last,))
+
+
+def _export_obj(target: Path) -> None:
+    """OBJ export.  ``wm.obj_export`` landed in 3.2; before that the operator
+    was ``export_scene.obj`` with different keyword names."""
+    try:
+        bpy.ops.wm.obj_export(
+            filepath=str(target), export_selected_objects=True,
+            apply_modifiers=True, export_materials=True,
+            export_normals=True)
+        return
+    except AttributeError:
+        pass                      # operator absent on this Blender
+    except TypeError:
+        pass                      # keyword mismatch
+    except Exception as exc:      # noqa: BLE001
+        raise RuntimeError("OBJ export failed: %s" % (exc,)) from exc
+    # legacy path (<= 3.1)
+    try:
+        bpy.ops.export_scene.obj(
+            filepath=str(target), use_selection=True,
+            use_mesh_modifiers=True, use_materials=True,
+            use_normals=True)
+        return
+    except TypeError as exc:
+        try:
+            bpy.ops.export_scene.obj(filepath=str(target), use_selection=True)
+            return
+        except Exception as exc2:  # noqa: BLE001
+            raise RuntimeError("OBJ export failed: %s / %s" % (exc, exc2)) from exc2
+    except Exception as exc:      # noqa: BLE001
+        raise RuntimeError("OBJ export failed: %s" % (exc,)) from exc
+
+
+def _export_stl(target: Path) -> None:
+    """STL export.  ``wm.stl_export`` is 3.2+; older builds use
+    ``export_mesh.stl`` which takes a different keyword set."""
+    try:
+        bpy.ops.wm.stl_export(
+            filepath=str(target), export_selected_objects=True,
+            apply_modifiers=True, ascii_format=False)
+        return
+    except AttributeError:
+        pass
+    except TypeError:
+        pass
+    except Exception as exc:      # noqa: BLE001
+        raise RuntimeError("STL export failed: %s" % (exc,)) from exc
+    try:
+        bpy.ops.export_mesh.stl(
+            filepath=str(target), use_selection=True,
+            use_mesh_modifiers=True, ascii=False)
+        return
+    except TypeError:
+        try:
+            bpy.ops.export_mesh.stl(filepath=str(target), use_selection=True)
+            return
+        except Exception as exc2:  # noqa: BLE001
+            raise RuntimeError("STL export failed: %s" % (exc2,)) from exc2
+    except Exception as exc:      # noqa: BLE001
+        raise RuntimeError("STL export failed: %s" % (exc,)) from exc
+
+
 def _export(job: Path, req: dict):
     verts, faces, finish, material_spec = _load(job)
     _reset()
@@ -1149,18 +1292,11 @@ def _export(job: Path, req: dict):
                  "exact": fmt == "blend"}
         try:
             if fmt == "glb":
-                bpy.ops.export_scene.gltf(
-                    filepath=str(target), export_format="GLB",
-                    use_selection=True, export_apply=True, export_yup=True)
+                _export_glb(target)
             elif fmt == "obj":
-                bpy.ops.wm.obj_export(
-                    filepath=str(target), export_selected_objects=True,
-                    apply_modifiers=True, export_materials=True,
-                    export_normals=True)
+                _export_obj(target)
             elif fmt == "stl":
-                bpy.ops.wm.stl_export(
-                    filepath=str(target), export_selected_objects=True,
-                    apply_modifiers=True, ascii_format=False)
+                _export_stl(target)
             elif fmt == "blend":
                 bpy.ops.wm.save_as_mainfile(filepath=str(target), copy=True)
             else:
@@ -1177,6 +1313,7 @@ def _export(job: Path, req: dict):
             "dir": str(outdir), "n_vertices": int(len(obj.data.vertices)),
             "n_tris": int(len(obj.data.polygons)),
             "finish_applied": build_info, "exact": False,
+            "blender": bpy.app.version_string,
             "degraded": build_info["degraded"]}
 
 

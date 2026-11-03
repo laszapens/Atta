@@ -36,6 +36,21 @@ def two_boxes(gap_mm: float = 0.0) -> Mesh:
                    cube(100.0, (step / 2, 0, 0))])
 
 
+def _hollow_box(outer_mm: float, inner_mm: float) -> Mesh:
+    """A closed shell: ``outer_mm`` box minus a concentric ``inner_mm`` box.
+
+    Needed because a solid cube is (correctly) "wall not applicable", so any
+    test about wall *measurement* must use a genuinely hollow part.
+    """
+    from atta.features import evaluate
+
+    return evaluate([
+        {"id": "outer", "op": "box", "args": {"size": [outer_mm] * 3}},
+        {"id": "inner", "op": "box", "args": {"size": [inner_mm] * 3}},
+        {"id": "shell", "op": "difference", "inputs": ["outer", "inner"]},
+    ])
+
+
 # ---------------------------------------------------------------- measures
 
 def test_topology_and_measures():
@@ -72,10 +87,16 @@ def test_wall_dihedral_curvature():
     m = cube(100.0)
     wall = metrology.wall_thickness(m)
     assert wall["exact"] is False
-    assert wall["n_hits"] == wall["n_samples"]
-    assert wall["min_mm"] == pytest.approx(100.0, abs=0.01)
+    # DEFECT 5: a 100 mm solid cube has no wall to measure.  Reporting 100 mm
+    # was a plausible-looking lie (the ray crosses the body and returns the
+    # chord).  The honest answer is "not applicable", with no number at all.
+    assert wall["applicable"] is False
+    assert wall["min_mm"] is None
     for key in ("p05_mm", "p50_mm", "p95_mm"):
-        assert wall[key] == pytest.approx(100.0, abs=0.01)
+        assert wall[key] is None
+    assert "not applicable" in wall["note"]
+    # A convex solid has no reflex edge; that is the discriminator.
+    assert metrology.concave_edge_count(m) == 0
 
     dih = metrology.dihedral(m)
     assert dih["max_deg"] == pytest.approx(90.0)
@@ -95,6 +116,29 @@ def test_wall_dihedral_curvature():
         assert key in measured
     assert measured["units"] == "mm"
     assert measured["exact"] is False
+
+
+def test_wall_thickness_is_real_for_a_hollow_part():
+    """DEFECT 5 counterpart: a hollow shell still gets a real measurement.
+
+    Together with the solid-cube case above this pins the discriminator: it
+    must say "not applicable" for a solid and a sane number for a shell.
+    """
+    from atta.features import evaluate
+
+    cup = evaluate([
+        {"id": "outer", "op": "box", "args": {"size": [20, 20, 20]}},
+        {"id": "cavity", "op": "box",
+         "args": {"size": [16, 16, 16], "center": [0, 0, 5]}},
+        {"id": "part", "op": "difference", "inputs": ["outer", "cavity"]},
+    ])
+    assert metrology.concave_edge_count(cup) > 0
+    wall = metrology.wall_thickness(cup)
+    assert wall["applicable"] is True
+    # 20 mm outer / 16 mm cavity => a (20-16)/2 = 2 mm wall.
+    assert wall["min_mm"] == pytest.approx(2.0, abs=0.05)
+    assert wall["n_hits"] > 0
+    assert wall["p05_mm"] <= wall["p50_mm"] <= wall["p95_mm"]
 
 
 # ---------------------------------------------------------------- probes
@@ -187,7 +231,11 @@ def test_facts_card():
     assert f["material"] == "steel"
     assert f["units"] == "mm"
     assert f["exact"] is False
-    assert f["wall"]["min_mm"] == pytest.approx(100.0, abs=0.01)
+    # A 100 mm solid cube has no wall: the fact card must expose that rather
+    # than print a 100 mm "wall" (DEFECT 5).
+    assert f["wall"]["min_mm"] is None
+    assert f["wall"]["applicable"] is False
+    assert "wall=" not in f["one_line"]
     assert isinstance(f["one_line"], str)
     assert 0 < len(f["one_line"]) < 200
     assert "cube" in f["one_line"]
@@ -226,7 +274,16 @@ def test_verify_pass_degraded_fail():
 
 
 def test_verify_constraints_have_fix():
-    r = verify.verify(cube(100.0),
+    # A hollow part so min_wall_mm is measurable and genuinely violated: a
+    # solid cube is "not applicable" now, so it can no longer exercise this.
+    from atta.features import evaluate
+
+    cup = evaluate([
+        {"id": "outer", "op": "box", "args": {"size": [100, 100, 100]}},
+        {"id": "cavity", "op": "box", "args": {"size": [96, 96, 96]}},
+        {"id": "part", "op": "difference", "inputs": ["outer", "cavity"]},
+    ])
+    r = verify.verify(cup,
                       constraints={"bbox": {"x": [10.0, 20.0]},
                                    "min_wall_mm": 150.0})
     assert r["verdict"] == "fail"
@@ -235,6 +292,20 @@ def test_verify_constraints_have_fix():
     assert "min_wall_mm" in ids
     for c in r["issues"]:
         assert c["fix"]
+
+
+def test_verify_reports_wall_not_applicable_for_a_solid():
+    """DEFECT 5: a solid has no wall, and verify must say so, not lie."""
+    r = verify.verify(cube(100.0), constraints={"min_wall_mm": 2.0},
+                      level="standard")
+    row = next(c for c in r["checks"] if c["id"] == "min_wall_mm")
+    assert row["skipped"] is True
+    assert row["value"] is None
+    assert "not applicable" in row["message"]
+    assert any(c["id"] == "min_wall_mm" for c in r["skipped"])
+    # Not a failure: we cannot measure it, so we must not call it one.
+    assert r["verdict"] == "pass"
+    assert not any(c["id"] == "min_wall_mm" for c in r["issues"])
 
 
 def test_verify_pair_constraints():
@@ -293,10 +364,94 @@ def test_verify_render_receipt():
 
 
 def test_verify_levels_and_expected_genus():
+    """DEFECT 2: ``basic`` is cheap, but it must never silently ignore.
+
+    v1.1 wrapped the whole constraint block in ``if level != "basic"``, so a
+    100 mm cube violating bbox.x=[1,2] returned verdict=pass and even typo
+    warnings disappeared.  basic may skip *expensive geometric* work only.
+    """
     m = cube(100.0)
+    basic = verify.verify(m, level="basic", constraints={"bbox": {"x": [1, 2]}})
+    assert basic["verdict"] == "fail"
+    # The constraint must actually have been evaluated, not merely present.
+    bbox_rows = [c for c in basic["checks"] if c["id"].startswith("bbox")]
+    assert bbox_rows, "basic dropped the bbox constraint entirely"
+    assert bbox_rows[0]["ok"] is False
+    assert not bbox_rows[0].get("skipped")
+
+    # Cheap constraints are enforced at basic...
     assert verify.verify(m, level="basic",
-                         constraints={"bbox": {"x": [1, 2]}})["verdict"] == "pass"
-    assert verify.verify(m, level="strict",
+                         constraints={"volume_mm3": [1.0, 2.0]})["verdict"] == "fail"
+    # ...unknown keys are reported at basic (they used to vanish)...
+    typo = verify.verify(m, level="basic", constraints={"volum_mm3": [1, 2]})
+    assert typo["verdict"] == "degraded"
+    assert any(c["id"] == "constraint.volum_mm3" for c in typo["issues"])
+
+    # ...while expensive geometric work is skipped *explicitly*, not silently.
+    hollow = _hollow_box(100.0, 96.0)
+    skipped = verify.verify(hollow, level="basic",
+                            constraints={"min_wall_mm": 150.0})
+    row = next(c for c in skipped["checks"] if c["id"] == "min_wall_mm")
+    assert row["skipped"] is True
+    assert "level=basic" in row["message"]
+    # standard evaluates it: the 2 mm wall really is under 150 mm.  Wall is
+    # warn-level at standard and error-level only at strict, so standard
+    # degrades -- but the constraint is evaluated, never silently dropped.
+    assert verify.verify(hollow, level="standard",
+                         constraints={"min_wall_mm": 150.0})["verdict"] == "degraded"
+    # strict promotes the warn to an error: a genuinely thin wall fails hard.
+    assert verify.verify(hollow, level="strict",
                          constraints={"min_wall_mm": 150.0})["verdict"] == "fail"
+    # A solid part is "not applicable" rather than failing, at every level:
+    # an unmeasurable wall is not evidence of a thin wall.
+    assert verify.verify(m, level="strict",
+                         constraints={"min_wall_mm": 150.0})["verdict"] == "pass"
     assert verify.verify(m, expected_genus=0)["verdict"] == "pass"
     assert verify.verify(m, expected_genus=1)["verdict"] == "fail"
+
+
+def test_verify_never_crashes_on_malformed_constraints():
+    """DEFECT 3: a bad constraint value is a check row, never a traceback.
+
+    v1.1 called ``float()`` directly, so ``bbox: {"x": "wide"}`` raised a bare
+    ValueError out of verify() and the caller got no receipt at all.
+    """
+    m = cube(100.0)
+    malformed = [
+        {"bbox": {"x": "wide"}},
+        {"bbox": {"min": ["wide", 0, 0], "max": [1, 1, 1]}},
+        {"bbox": {"x": [1, "two"]}},
+        {"volume_mm3": "lots"},
+        {"volume_mm3": [1, "many"]},
+        {"min_wall_mm": "thick"},
+        {"genus": "two"},
+        {"n_components": "many"},
+        {"dihedral_max_deg": "sharp"},
+        {"curvature_p95_deg": "curvy"},
+        {"envelope": {"min": ["a", 1, 2]}},
+        {"holes": [{"diameter": "big"}]},
+        {"holes": [{"diameter": 5, "tolerance": "loose"}]},
+        {"clearance": [{"a": "a", "b": "b", "min": "far"}]},
+        {"interference": [{"a": "a", "b": "b", "max": "lots"}]},
+        {"interfaces": [{"a": "a", "b": "b", "max_mm3": "lots"}]},
+    ]
+    parts = {"a": m, "b": m}
+    for cons in malformed:
+        r = verify.verify(m, constraints=cons, parts=parts)  # must not raise
+        assert r["verdict"] == "fail", (cons, r["verdict"])
+        bad = [c for c in r["issues"] if c["severity"] == "error"]
+        assert bad, cons
+        assert all(c["fix"] for c in bad), cons
+        # The receipt must explain itself rather than print a bare exception.
+        assert any("malformed" in (c["message"] or "") for c in bad), cons
+
+
+def test_verify_treats_boolean_and_nonfinite_constraints_as_malformed():
+    """``float(True)`` is 1.0 and ``float('nan')`` succeeds -- both are lies."""
+    m = cube(100.0)
+    for cons in ({"volume_mm3": True},
+                 {"min_wall_mm": float("nan")},
+                 {"bbox": {"x": [1, float("inf")]}}):
+        r = verify.verify(m, constraints=cons)
+        assert r["verdict"] == "fail", cons
+        assert any(c["severity"] == "error" and c["fix"] for c in r["issues"])

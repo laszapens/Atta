@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Atta v1.1 engine: the ten verbs the agent actually sees.
+"""Atta engine: the ten verbs the agent actually sees.
 
 Everything here returns plain JSON-able dicts.  Failures raise
 :class:`atta.errors.AttaError` with a concrete ``fix``; the agent layer turns
@@ -513,11 +513,28 @@ def doctor(deep: bool = False) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
-    blender = {"available": False, "path": None, "version": None, "error": None}
+    blender = {"available": False, "path": None, "version": None,
+               "version_tuple": None, "supported": None, "error": None,
+               "what_works_without_blender": [
+                   "draft geometry (atta_model, atta_spec)",
+                   "measurement and facts (atta_describe)",
+                   "verify verdicts (atta_verify)",
+                   "STEP export (atta_deliver --formats step)",
+               ]}
     try:
         from .blender import available as blender_available, find_blender
+        from .blender import blender_version
         blender["path"] = find_blender()
         blender["available"] = bool(blender_available())
+        if blender["available"]:
+            # Version drives behaviour (export operators, EEVEE identity,
+            # shading APIs), so doctor must report it, not just "found".
+            found = blender_version()
+            if found:
+                blender["version"] = found.get("version")
+                blender["version_tuple"] = found.get("version_tuple")
+                blender["supported"] = bool(
+                    tuple(found.get("version_tuple") or (0,)) >= (3, 6))
     except Exception as exc:  # noqa: BLE001
         blender["error"] = "%s: %s" % (type(exc).__name__, exc)
 
@@ -1981,12 +1998,23 @@ def deliver(model_id: str | None = None, formats=None, outdir: str | None = None
         try:
             from .blender import available as blender_available, runtime as get_runtime
             if not blender_available():
-                raise AttaError("blender_unavailable", "Blender is not installed or not on PATH",
-                                path="blender",
-                                fix="install Blender or set ATTA_BLENDER to its executable")
-            ex = get_runtime(root=str(state.workspace())).export(
-                mesh, finish, formats=mesh_formats, stem=stem, workdir=out,
-            )
+                # Blender is optional (doctor rates it "warn").  A missing
+                # backend must not explode: report which formats still work
+                # and let STEP through, so the user gets a usable file.
+                ex = {"files": [_jsonable({
+                    "format": fmt, "ok": False, "backend": "blender",
+                    "error": {
+                        "code": "blender_unavailable",
+                        "message": "Blender is not installed or not on PATH",
+                        "fix": ("install Blender, set ATTA_BLENDER to its "
+                                "executable, or request formats that do not "
+                                "need it: step is available without Blender"),
+                    },
+                }) for fmt in mesh_formats]}
+            else:
+                ex = get_runtime(root=str(state.workspace())).export(
+                    mesh, finish, formats=mesh_formats, stem=stem, workdir=out,
+                )
         except AttaError:
             raise
         except Exception as exc:  # noqa: BLE001

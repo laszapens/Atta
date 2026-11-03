@@ -47,7 +47,7 @@ def _plain(x):
 
 
 def _check(checks, cid, ok, severity="error", value=None, expected=None,
-           message=None, fix=None):
+           message=None, fix=None, skipped=False):
     row = {
         "id": str(cid),
         "ok": bool(ok),
@@ -58,8 +58,42 @@ def _check(checks, cid, ok, severity="error", value=None, expected=None,
         else ("ok" if ok else "%s failed" % cid),
         "fix": None if ok else (fix or "inspect the model and re-run verify"),
     }
+    if skipped:
+        # Not evaluated at this level.  Explicit, so a cheap `basic` gate can
+        # never look like a full pass by silently dropping a constraint.
+        row["skipped"] = True
     checks.append(row)
     return row
+
+
+def _skip(checks, cid, level, why):
+    """Record that a constraint was deliberately not evaluated at ``level``."""
+    return _check(checks, cid, True, "info", None, None,
+                  "%s not evaluated at level=%s: %s; re-run at level=standard"
+                  % (cid, level, why),
+                  skipped=True)
+
+
+class _Malformed(Exception):
+    """A constraint value that cannot be interpreted as a number."""
+
+
+def _snum(value):
+    """Coerce a constraint number, or raise ``_Malformed``.
+
+    Constraint values arrive as untrusted JSON, so ``float()`` must never be
+    allowed to escape as a bare ValueError: a malformed constraint is a check
+    failure with a ``fix``, not a crashed verify (DEFECT 3).
+    """
+    if isinstance(value, bool):
+        raise _Malformed("%r is a boolean, not a number" % (value,))
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        raise _Malformed("%r is not a number" % (value,)) from None
+    if not math.isfinite(x):
+        raise _Malformed("%r is not finite" % (value,))
+    return x
 
 
 def _window(value, spec):
@@ -67,11 +101,44 @@ def _window(value, spec):
         return True
     if isinstance(spec, dict):
         lo, hi = spec.get("min"), spec.get("max")
-        return ((lo is None or value >= float(lo)) and
-                (hi is None or value <= float(hi)))
+        return ((lo is None or value >= _snum(lo)) and
+                (hi is None or value <= _snum(hi)))
     if isinstance(spec, (list, tuple)) and len(spec) == 2:
-        return float(spec[0]) <= value <= float(spec[1])
-    return abs(value - float(spec)) <= max(1e-9, abs(float(spec)) * 1e-6)
+        return _snum(spec[0]) <= value <= _snum(spec[1])
+    ref = _snum(spec)
+    return abs(value - ref) <= max(1e-9, abs(ref) * 1e-6)
+
+
+def _malformed(checks, cid, exc, fix):
+    """Record a malformed-constraint failure row instead of raising."""
+    return _check(checks, cid, False, "error", None, None,
+                  "malformed constraint %s: %s" % (cid, exc), fix)
+
+
+def _window_check(checks, cid, value, spec, severity, ok_msg, bad_msg, fix):
+    """Evaluate one ``_window`` constraint, reporting malformed values."""
+    try:
+        ok = _window(value, spec)
+    except _Malformed as exc:
+        return _malformed(checks, cid, exc,
+                          "pass a finite number, [min, max] or {min, max}")
+    return _check(checks, cid, ok, severity, value, spec,
+                  ok_msg if ok else bad_msg, fix)
+
+
+def _bound(checks, cid, raw, fix):
+    """Coerce an optional min/max bound; ``None`` stays ``None``.
+
+    Returns ``(ok, value)``: a malformed bound is recorded as a check failure
+    and reported as ``ok=False`` so the caller can skip the comparison.
+    """
+    if raw is None:
+        return True, None
+    try:
+        return True, _snum(raw)
+    except _Malformed as exc:
+        _malformed(checks, cid, exc, fix)
+        return False, None
 
 
 def _rows(value):
@@ -347,8 +414,13 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
            "union the parts, or verify each part separately and declare an "
            "assembly")
 
-    need_wall = level != "basic" and "min_wall_mm" in cons
-    need_curv = level != "basic" and "curvature_p95_deg" in cons
+    # ``basic`` is a cheap gate: it may skip the *expensive geometric* checks
+    # (wall, clearance/interference, hole detection, render receipts) but it
+    # must never silently drop a constraint.  Skipped ones are recorded with
+    # skipped=True so a cheap pass can never be mistaken for a full pass.
+    gates = level != "basic"
+    need_wall = gates and "min_wall_mm" in cons
+    need_curv = gates and "curvature_p95_deg" in cons
     metrics = metrology.measure(mesh, wall=need_wall, dihedral=True,
                                 curvature=need_curv)
     dih = metrics["dihedral"]
@@ -356,8 +428,10 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
     curv = metrics.get("curvature")
     bbox = metrics["bbox_mm"]
 
-    if level != "basic":
+    try:
         # -------------------------------------------- dimensional gates
+        # Cheap constraints run at every level.  v1.1 wrapped this whole block
+        # in ``if level != "basic"``, so a volume violation reported pass.
         bbox_spec = cons.get("bbox")
         if bbox_spec is not None:
             size = bbox["size"]
@@ -366,11 +440,18 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                 mn = list(bbox_spec.get("min") or [None, None, None])
                 mx = list(bbox_spec.get("max") or [None, None, None])
                 for i, axis in enumerate("xyz"):
-                    lo = None if i >= len(mn) else mn[i]
-                    hi = None if i >= len(mx) else mx[i]
-                    ok = ((lo is None or bbox["min"][i] >= float(lo)) and
-                          (hi is None or bbox["max"][i] <= float(hi)))
-                    _check(checks, "bbox.%s" % axis, ok, "error",
+                    cid = "bbox.%s" % axis
+                    lo_ok, lo = _bound(checks, cid,
+                                       None if i >= len(mn) else mn[i],
+                                       "pass min:[x,y,z] as finite numbers")
+                    hi_ok, hi = _bound(checks, cid,
+                                       None if i >= len(mx) else mx[i],
+                                       "pass max:[x,y,z] as finite numbers")
+                    if not (lo_ok and hi_ok):
+                        continue
+                    ok = ((lo is None or bbox["min"][i] >= lo) and
+                          (hi is None or bbox["max"][i] <= hi))
+                    _check(checks, cid, ok, "error",
                            {"min": bbox["min"][i], "max": bbox["max"][i]},
                            {"min": lo, "max": hi},
                            "bbox %s inside bounds" % axis if ok
@@ -389,57 +470,90 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                         spec = bbox_spec
                     if spec is None:
                         continue
-                    ok = _window(float(size[i]), spec)
-                    _check(checks, "bbox.%s" % axis, ok, "error", size[i], spec,
-                           "bbox %s size in window" % axis if ok
-                           else "bbox %s size outside window" % axis,
-                           "change the %s dimension; use atta_solve or a "
-                           "recipe parameter" % axis)
+                    _window_check(checks, "bbox.%s" % axis, float(size[i]), spec,
+                                  "error",
+                                  "bbox %s size in window" % axis,
+                                  "bbox %s size outside window" % axis,
+                                  "change the %s dimension; use atta_solve or a "
+                                  "recipe parameter" % axis)
 
         if "volume_mm3" in cons:
-            spec = cons["volume_mm3"]
-            ok = _window(float(vol), spec)
-            _check(checks, "volume_mm3", ok, "error", vol, spec,
-                   "volume in window" if ok else "volume outside window",
-                   "change wall thickness or overall size; volume scales with "
-                   "the cube of dimensions")
+            _window_check(checks, "volume_mm3", float(vol), cons["volume_mm3"],
+                          "error", "volume in window", "volume outside window",
+                          "change wall thickness or overall size; volume scales "
+                          "with the cube of dimensions")
 
         if "envelope" in cons:
             spec = cons["envelope"]
-            mn = list(spec.get("min") or [None, None, None])
-            mx = list(spec.get("max") or [None, None, None])
-            for i, axis in enumerate("xyz"):
-                lo = None if i >= len(mn) else mn[i]
-                hi = None if i >= len(mx) else mx[i]
-                ok = ((lo is None or bbox["min"][i] >= float(lo)) and
-                      (hi is None or bbox["max"][i] <= float(hi)))
-                _check(checks, "envelope.%s" % axis, ok, "error",
-                       {"min": bbox["min"][i], "max": bbox["max"][i]},
-                       {"min": lo, "max": hi},
-                       "envelope %s inside bounds" % axis if ok
-                       else "envelope %s outside bounds" % axis,
-                       "translate the part back into the world envelope")
+            if not isinstance(spec, dict):
+                _malformed(checks, "envelope", _Malformed("%r is not an object"
+                                                          % (spec,)),
+                           "Use {min:[x,y,z], max:[x,y,z]}.")
+            else:
+                mn = list(spec.get("min") or [None, None, None])
+                mx = list(spec.get("max") or [None, None, None])
+                for i, axis in enumerate("xyz"):
+                    cid = "envelope.%s" % axis
+                    lo_ok, lo = _bound(checks, cid,
+                                       None if i >= len(mn) else mn[i],
+                                       "pass min:[x,y,z] as finite numbers")
+                    hi_ok, hi = _bound(checks, cid,
+                                       None if i >= len(mx) else mx[i],
+                                       "pass max:[x,y,z] as finite numbers")
+                    if not (lo_ok and hi_ok):
+                        continue
+                    ok = ((lo is None or bbox["min"][i] >= lo) and
+                          (hi is None or bbox["max"][i] <= hi))
+                    _check(checks, cid, ok, "error",
+                           {"min": bbox["min"][i], "max": bbox["max"][i]},
+                           {"min": lo, "max": hi},
+                           "envelope %s inside bounds" % axis if ok
+                           else "envelope %s outside bounds" % axis,
+                           "translate the part back into the world envelope")
 
         if "min_wall_mm" in cons:
-            spec = cons["min_wall_mm"]
-            need = float(spec.get("min", 0.0)) if isinstance(spec, dict) \
-                else float(spec)
-            got = None if not wall else wall.get("min_mm")
-            ok = got is not None and float(got) >= need
-            _check(checks, "min_wall_mm", ok, quality_sev, got, ">=%s" % need,
-                   "sampled wall meets the limit" if ok
-                   else "sampled wall below the limit (or no ray hit)",
-                   "thicken the thin wall or reduce the cavity; wall is a "
-                   "ray sample, so confirm the thin region explicitly")
+            if not gates:
+                _skip(checks, "min_wall_mm", level,
+                      "wall thickness needs ray sampling")
+            else:
+                spec = cons["min_wall_mm"]
+                need_ok, need = _bound(
+                    checks, "min_wall_mm",
+                    spec.get("min", 0.0) if isinstance(spec, dict) else spec,
+                    "pass min_wall_mm: 2.5 or {min: 2.5}")
+                if need_ok:
+                    got = None if not wall else wall.get("min_mm")
+                    if got is None:
+                        # Honest reporting: metrology says the part has no
+                        # measurable wall (a solid), so there is nothing to
+                        # compare.  Not a failure, and not a number either.
+                        why = (wall or {}).get("note") \
+                            or "no opposing surface was found"
+                        _check(checks, "min_wall_mm", True, "info", None,
+                               ">=%s" % need,
+                               "not applicable: %s" % why,
+                               skipped=True)
+                    else:
+                        ok = float(got) >= need
+                        _check(checks, "min_wall_mm", ok, quality_sev, got,
+                               ">=%s" % need,
+                               "sampled wall meets the limit" if ok
+                               else "sampled wall below the limit",
+                               "thicken the thin wall or reduce the cavity; "
+                               "wall is a ray sample, so confirm the thin "
+                               "region explicitly")
 
         if "genus" in cons:
-            spec = cons["genus"]
             g = topo["genus"]
-            ok = g is not None and _window(float(g), spec)
-            _check(checks, "genus", ok, "error", g, spec,
-                   "genus matches" if ok else "genus does not match",
-                   "check through-holes / disconnected handles; genus is "
-                   "defined only for closed meshes")
+            if g is None:
+                _check(checks, "genus", False, "error", None, cons["genus"],
+                       "genus is undefined for an open mesh",
+                       "cap the mesh; genus needs a closed solid")
+            else:
+                _window_check(checks, "genus", float(g), cons["genus"], "error",
+                              "genus matches", "genus does not match",
+                              "check through-holes / disconnected handles; "
+                              "genus is defined only for closed meshes")
 
         if "closed" in cons:
             want = bool(cons["closed"])
@@ -450,41 +564,55 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                    "cap or open the shell as intended, then re-verify")
 
         if "n_components" in cons:
-            spec = cons["n_components"]
-            ok = _window(float(topo["n_components"]), spec)
-            _check(checks, "n_components", ok, "error",
-                   topo["n_components"], spec,
-                   "component count in window" if ok
-                   else "component count outside window",
-                   "union the intended parts or split the unintended ones")
+            _window_check(checks, "n_components",
+                          float(topo["n_components"]), cons["n_components"],
+                          "error", "component count in window",
+                          "component count outside window",
+                          "union the intended parts or split the unintended ones")
 
         if "dihedral_max_deg" in cons:
-            limit = float(cons["dihedral_max_deg"])
-            got = float(dih["max_deg"])
-            ok = got <= limit
-            _check(checks, "dihedral_max_deg", ok, quality_sev, got,
-                   "<=%.3f" % limit,
-                   "max dihedral within limit" if ok
-                   else "max dihedral exceeds the limit",
-                   "add bevel/subdivision or raise the allowed dihedral for "
-                   "intentional hard edges")
+            limit_ok, limit = _bound(checks, "dihedral_max_deg",
+                                     cons["dihedral_max_deg"],
+                                     "pass dihedral_max_deg: 30 (degrees)")
+            if limit_ok:
+                got = float(dih["max_deg"])
+                ok = got <= limit
+                _check(checks, "dihedral_max_deg", ok, quality_sev, got,
+                       "<=%.3f" % limit,
+                       "max dihedral within limit" if ok
+                       else "max dihedral exceeds the limit",
+                       "add bevel/subdivision or raise the allowed dihedral "
+                       "for intentional hard edges")
 
         if "curvature_p95_deg" in cons:
-            limit = float(cons["curvature_p95_deg"])
-            got = float(curv["p95_deg"]) if curv else 0.0
-            ok = got <= limit
-            _check(checks, "curvature_p95_deg", ok, quality_sev, got,
-                   "<=%.3f" % limit,
-                   "curvature p95 within limit" if ok
-                   else "curvature p95 exceeds the limit",
-                   "increase profile/segment sampling or smooth the surface; "
-                   "curvature is a vertex-normal proxy")
+            if not gates:
+                _skip(checks, "curvature_p95_deg", level,
+                      "curvature needs per-vertex sampling")
+            else:
+                limit_ok, limit = _bound(checks, "curvature_p95_deg",
+                                         cons["curvature_p95_deg"],
+                                         "pass curvature_p95_deg: 20 "
+                                         "(degrees)")
+                if limit_ok:
+                    got = float(curv["p95_deg"]) if curv else 0.0
+                    ok = got <= limit
+                    _check(checks, "curvature_p95_deg", ok, quality_sev, got,
+                           "<=%.3f" % limit,
+                           "curvature p95 within limit" if ok
+                           else "curvature p95 exceeds the limit",
+                           "increase profile/segment sampling or smooth the "
+                           "surface; curvature is a vertex-normal proxy")
 
         # -------------------------------------------- pair gates
-        for i, row in enumerate(_rows(cons.get("clearance"))):
+        if cons.get("clearance") and not gates:
+            _skip(checks, "clearance", level, "clearance needs mesh distance queries")
+        for i, row in enumerate([] if not gates
+                                else _rows(cons.get("clearance"))):
             a = row.get("a")
             b = row.get("b")
-            need = float(row.get("min", row.get("min_mm", 0.0)))
+            need_ok, need = _bound(checks, "clearance.%d" % i,
+                                   row.get("min", row.get("min_mm", 0.0)),
+                                   "pass each clearance row a min in mm")
             pa, pb = _lookup(parts, a), _lookup(parts, b)
             if pa is None or pb is None:
                 _check(checks, "clearance.%d" % i, False, "error",
@@ -492,6 +620,8 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                        "clearance references an unknown part",
                        "pass parts={name: Mesh}; available: %s"
                        % _available(parts))
+                continue
+            if not need_ok:
                 continue
             got = probe.clearance(pa, pb)["min_mm"]
             ok = float(got) >= need
@@ -502,10 +632,16 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                    "increase the gap between '%s' and '%s' or shrink the "
                    "mating feature" % (a, b))
 
-        for i, row in enumerate(_rows(cons.get("interference"))):
+        if cons.get("interference") and not gates:
+            _skip(checks, "interference", level,
+                  "interference needs a boolean intersection")
+        for i, row in enumerate([] if not gates
+                                else _rows(cons.get("interference"))):
             a = row.get("a")
             b = row.get("b")
-            cap = float(row.get("max", row.get("max_mm3", 1e-6)))
+            cap_ok, cap = _bound(checks, "interference.%d" % i,
+                                  row.get("max", row.get("max_mm3", 1e-6)),
+                                  "pass each interference row a max in mm3")
             pa, pb = _lookup(parts, a), _lookup(parts, b)
             if pa is None or pb is None:
                 _check(checks, "interference.%d" % i, False, "error",
@@ -513,6 +649,8 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                        "interference references an unknown part",
                        "pass parts={name: Mesh}; available: %s"
                        % _available(parts))
+                continue
+            if not cap_ok:
                 continue
             info = probe.interference(pa, pb)
             got = float(info["volume_mm3"])
@@ -524,10 +662,16 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                    "separate or resize '%s' and '%s'; boolean intersection "
                    "volume is %s mm3" % (a, b, got))
 
-        for i, row in enumerate(_rows(cons.get("interfaces"))):
+        if cons.get("interfaces") and not gates:
+            _skip(checks, "interface", level,
+                  "interface needs a boolean intersection")
+        for i, row in enumerate([] if not gates
+                                else _rows(cons.get("interfaces"))):
             a = row.get("a")
             b = row.get("b")
-            cap = float(row.get("max_mm3", row.get("max", 1e-6)))
+            cap_ok, cap = _bound(checks, "interface.%d" % i,
+                                  row.get("max_mm3", row.get("max", 1e-6)),
+                                  "pass each interfaces row a max_mm3")
             pa, pb = _lookup(parts, a), _lookup(parts, b)
             if pa is None or pb is None:
                 _check(checks, "interface.%d" % i, False, "error",
@@ -535,6 +679,8 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                        "interface references an unknown part",
                        "pass parts={name: Mesh}; available: %s"
                        % _available(parts))
+                continue
+            if not cap_ok:
                 continue
             got = float(probe.interference(pa, pb)["volume_mm3"])
             ok = got <= cap
@@ -546,35 +692,68 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                    "otherwise change the fit")
 
         if "holes" in cons:
-            actual = _detect_holes(mesh)
-            for i, row in enumerate(_rows(cons["holes"])):
-                diameter = row.get("diameter", row.get("d"))
-                tol = float(row.get("tolerance", 0.05))
-                count = int(row.get("count", 0))
-                matched = [h for h in actual
-                           if diameter is not None
-                           and abs(float(h["diameter_mm"]) - float(diameter)) <= tol]
-                ok = len(matched) >= (count if count else 1)
-                _check(checks, "holes.%d" % i, ok, "warn",
-                       {"detected": len(actual), "matched": len(matched)},
-                       ">=" + str(count if count else 1),
-                       "hole count/diameter matches" if ok
-                       else "hole count/diameter does not match",
-                       "check hole diameter and position; detection uses "
-                       "mid-sections (exact:false)")
+            if not gates:
+                _skip(checks, "holes", level,
+                      "hole detection needs mid-sections")
+            else:
+                actual = _detect_holes(mesh)
+                for i, row in enumerate(_rows(cons["holes"])):
+                    cid = "holes.%d" % i
+                    diameter = row.get("diameter", row.get("d"))
+                    tol_ok, tol = _bound(checks, cid,
+                                         row.get("tolerance", 0.05),
+                                         "pass tolerance in mm")
+                    cnt_ok, count = _bound(checks, cid, row.get("count", 0),
+                                           "pass count as a whole number")
+                    if not (tol_ok and cnt_ok):
+                        continue
+                    if diameter is None:
+                        _check(checks, cid, False, "error", None,
+                               "a diameter in mm",
+                               "hole row has no diameter",
+                               "add diameter (mm) to the holes row")
+                        continue
+                    try:
+                        want_d = _snum(diameter)
+                    except _Malformed as exc:
+                        _malformed(checks, cid, exc, "pass diameter in mm")
+                        continue
+                    matched = [h for h in actual
+                               if abs(float(h["diameter_mm"]) - want_d) <= tol]
+                    want_n = count if count else 1
+                    ok = len(matched) >= want_n
+                    _check(checks, cid, ok, "warn",
+                           {"detected": len(actual), "matched": len(matched)},
+                           ">=" + str(want_n),
+                           "hole count/diameter matches" if ok
+                           else "hole count/diameter does not match",
+                           "check hole diameter and position; detection uses "
+                           "mid-sections (exact:false)")
 
-        if "render" in cons:
-            _render_checks(checks, cons["render"],
-                           render_receipt if render_receipt is not None
-                           else cons.get("render_receipt"))
-        elif render_receipt is not None:
-            _render_checks(checks, {}, render_receipt)
+        if "render" in cons or render_receipt is not None:
+            if not gates:
+                _skip(checks, "render.gate", level,
+                      "the render gate needs a receipt and image stats")
+            else:
+                _render_checks(checks,
+                               cons["render"] if "render" in cons else {},
+                               render_receipt if render_receipt is not None
+                               else cons.get("render_receipt"))
+    except Exception as exc:  # noqa: BLE001 - a check must never crash verify
+        # Last-resort containment for DEFECT 3: constraint evaluation handles
+        # untrusted JSON, so an unforeseen malformed value becomes an
+        # error-level check with a fix instead of a traceback.
+        _check(checks, "constraints.internal", False, "error", None, None,
+               "constraint evaluation failed: %s: %s"
+               % (type(exc).__name__, exc),
+               "report this as a bug with the constraint JSON; verify the "
+               "constraint types are numbers/windows")
 
-        unknown = [k for k in cons if k not in SUPPORTED]
-        for key in unknown:
-            _check(checks, "constraint.%s" % key, False, "warn", key, SUPPORTED,
-                   "unknown constraint key",
-                   "use one of: %s" % ", ".join(SUPPORTED))
+    unknown = [k for k in cons if k not in SUPPORTED]
+    for key in unknown:
+        _check(checks, "constraint.%s" % key, False, "warn", key, SUPPORTED,
+               "unknown constraint key %r is ignored" % key,
+               "use one of: %s" % ", ".join(SUPPORTED))
 
     if expected_genus is not None and "genus" not in cons:
         g = topo["genus"]
@@ -584,12 +763,16 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                else "genus differs from the expected value",
                "check through-holes; genus needs a closed mesh")
 
-    passed = sum(1 for c in checks if c["ok"])
-    failed = [c for c in checks if not c["ok"]]
+    evaluated = [c for c in checks if not c.get("skipped")]
+    skipped = [c for c in checks if c.get("skipped")]
+    passed = sum(1 for c in evaluated if c["ok"])
+    failed = [c for c in evaluated if not c["ok"]]
     errors = [c for c in failed if c["severity"] == "error"]
     warns = [c for c in failed if c["severity"] == "warn"]
     verdict = "fail" if errors else ("degraded" if warns else "pass")
-    score = round(float(passed) / max(1, len(checks)), 4)
+    # ``score`` is the pass rate over checks that actually ran: counting a
+    # constraint we chose not to evaluate would flatter a cheap basic gate.
+    score = round(float(passed) / max(1, len(evaluated)), 4)
 
     fixes = []
     for row in failed:
@@ -616,6 +799,7 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
         "level": level,
         "checks": checks,
         "issues": failed,
+        "skipped": skipped,
         "metrics": metrics,
         "facts": fact_card,
         "assumptions": list(assumptions or []),

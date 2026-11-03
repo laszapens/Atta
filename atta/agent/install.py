@@ -167,7 +167,7 @@ def install_zcode_plugin(root=None, python=None, dry_run: bool = False) -> dict:
         "dry_run": bool(dry_run),
         "next": ("Plugin Marketplace -> Add -> Add Plugin Marketplace -> "
                  "paste marketplace_root; then Personal -> dev-atta-local -> "
-                 "Atta v1.1 -> Install"),
+                 "Atta -> Install"),
     }
     if dry_run:
         result["config"] = payload

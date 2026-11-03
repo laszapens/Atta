@@ -106,7 +106,7 @@ def _add_common(p):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="atta", description="Atta v1.1 — LLM-native modeling")
+    p = argparse.ArgumentParser(prog="atta", description="Atta — LLM-native modeling")
     p.add_argument("--json", action="store_true", default=None,
                    help="emit the {ok,data,error} envelope")
     p.add_argument("--version", action="store_true")
@@ -122,6 +122,12 @@ def build_parser():
 
     sp = cmd("catalog", "recipes, features, materials, views")
     sp.add_argument("--verbose", action="store_true")
+    sp.add_argument("--recipe", default=None,
+                    help="recipe id (or comma list) for its full parameter schema")
+    sp.add_argument("--feature", default=None,
+                    help="one graph op, e.g. revolve")
+    sp.add_argument("--offset", type=int, default=None,
+                    help="index page start (use next_offset from a previous call)")
 
     sp = cmd("spec", "validate / propose / compile a Spec")
     sp.add_argument("--op", default="validate", choices=["validate", "propose", "compile", "schema"])
@@ -268,7 +274,27 @@ def _dispatch(args, as_json: bool) -> int:
         if args.verb == "doctor":
             data = engine.doctor(deep=args.deep)
         elif args.verb == "catalog":
-            data = engine.catalog(verbose=args.verbose)
+            # Route through the agent layer so the CLI and the ten tools return
+            # the same (compact, paginated) catalogue.  engine.catalog alone is
+            # the raw ~56 KB payload.
+            from .agent.tools import call_tool
+            c_args = {"verbose": args.verbose}
+            if args.recipe:
+                ids = [x.strip() for x in str(args.recipe).split(",") if x.strip()]
+                c_args["recipe"] = ids if len(ids) > 1 else ids[0]
+            if args.feature:
+                c_args["feature"] = args.feature
+            if args.offset is not None:
+                c_args["offset"] = args.offset
+            env = call_tool("atta_catalog", c_args)
+            if not env.get("ok"):
+                raise AttaError(
+                    (env.get("error") or {}).get("code") or "bad_arguments",
+                    (env.get("error") or {}).get("message") or "catalog failed",
+                    path=(env.get("error") or {}).get("path"),
+                    fix=(env.get("error") or {}).get("fix"),
+                )
+            data = env["data"]
         elif args.verb == "spec":
             spec = _read_json_arg(args.spec, args.spec_file, "spec")
             data = engine.spec(spec=spec, op=args.op, assume=args.assume)

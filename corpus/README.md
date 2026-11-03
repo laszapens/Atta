@@ -1,66 +1,63 @@
-# Shape corpus workspace
+# Shape corpus
 
-This directory is for the **crawler**, not for Atta's runtime. Atta imports
-none of it. The deliverable that reaches Atta is a **family template +
-parameter schema + tests + verify receipt**, not a folder of one-off models.
-`corpus/raw/` is local harvest evidence and is excluded from the public tree;
-`corpus/normalized/` carries the licence fields and provenance.
+Atta's runtime imports **none** of this directory. The only part that ships and
+that the toolkit reads is `corpus/bench/`: held-out generalization cases scored by
+`scripts/run_bench.py`. Everything else here documents the shape corpus that
+informed the recipe set.
 
-Read [`../docs/SHAPE_COVERAGE_REQUIREMENTS.md`](../docs/SHAPE_COVERAGE_REQUIREMENTS.md)
-before adding anything.
+What Atta actually consumes from a corpus survey is a **family template +
+parameter schema + tests + verify receipt** — not a folder of one-off models.
 
-## Layout
+## What ships
 
 ```
 corpus/
-  raw/            local harvest evidence, grouped by domain/date; not redistributed
-  normalized/     accepted JSONL records (schema-validated)
-  rejected/       rejected JSONL + reason
-  bench/          held-out generalization cases
-  nominations.jsonl   family/feature proposals (human-reviewed)
+  bench/generalization_v1.json   100 held-out cases, generic Spec v3 graphs
+  coverage_report.json           static snapshot: which shape families exist, per category
+  license_report.json            static snapshot: licence tiers of the surveyed records
+  nominations.template.json      template for proposing a new family
+  README.md  DELIVERY.md         this file and the provenance summary
 ```
 
-## Workflow
+The raw record corpus (`raw/`, `normalized/`, `rejected/`) and the harvest tooling
+are **not redistributed**: they are third-party geometry and metadata under mixed
+licences. The two report JSONs are kept because they are self-contained summaries
+(counts, tiers, gaps) with no redistributed content.
 
-1. Fetch with ToS/robots/rate-limit compliance; **never execute code during crawl**.
-2. Detect license (SPDX) and assign `license_tier` A/B/C/unknown.
-3. Normalize one JSON object per line; schema:
-   [`../docs/shape_corpus.schema.json`](../docs/shape_corpus.schema.json).
-4. Validate and count:
+## The bench set
 
-   ```bash
-   python3 scripts/validate_corpus.py corpus/normalized/*.jsonl --coverage
-   ```
+`corpus/bench/generalization_v1.json` is the only input `scripts/run_bench.py`
+needs. Each case is a generic Spec v3 feature graph, so the benchmark never calls
+a shipped recipe and cannot be gamed by tuning one.
 
-5. Cluster by `shape.family`; keep 3–5 variants per family.
-6. Nominate only families that meet the rules in the requirements doc.
-7. Held-out cases go to `corpus/bench/`; they are never used for implementation.
+```bash
+python3 scripts/run_bench.py                 # score all 100 cases
+python3 scripts/run_bench.py --limit 10      # quick smoke run
+python3 scripts/run_bench.py --out /tmp/b.json
+```
 
-## Hard rules
+The file carries its own `protocol`, `summary` and `failures` blocks; read
+`summary` for the headline numbers and `failures` for the case-by-case misses.
+Interpretation of the numbers (what "faithful build" means, where the 6 misses
+cluster) is in [`../docs/SHAPE_COVERAGE.md`](../docs/SHAPE_COVERAGE.md).
 
-- Tier C / unknown licenses never enter `normalized/` as `accepted`.
-- No personal data, credentials, paid content or ToS-violating snapshots.
-- No one-recipe-per-model. A family must have parameters, constraints and tests.
-- A record without `parameters` is reference-only, not an implementation target.
-- Every accepted family must end with an `atta_verify` receipt and a perception
-  signature (`atta_describe(perceive=true)`).
+## Adding a family
 
-## Outputs expected from the crawler
+Recipe ids encode their category (`product.mug`, `surface.dome`); the 12
+categories and their acceptance rules live in
+[`../docs/coverage_matrix.json`](../docs/coverage_matrix.json) and are enforced by
+`tests/test_coverage_gate.py`. A family must carry typed parameters, constraints,
+and end in an `atta_verify` receipt plus a perception signature
+(`atta_describe(perceive=true)`).
 
-- `normalized/*.jsonl` — schema-valid records;
-- `rejected/*.jsonl` — rejected records with `reason`;
-- `nominations.jsonl` — family/feature proposals;
-- `license_report.json` — counts by tier/domain, Tier C list;
-- `coverage_report.json` — accepted counts vs `docs/coverage_matrix.json`;
-- `README.md` — scope, dates, commands, known gaps.
+See [`../CONTRIBUTING.md`](../CONTRIBUTING.md) for the mechanics.
 
 ---
 
 ## 采集结果 (2026-11-02)
 
-本次采集（2026-11-02）由 harvester `task-6`/`task-7`/`task-8`/`harvest-fit` 产出，
-由 `task-9`（QA）独立复核（快照 10:36Z；三个 harvester 与四个 implementer 共用这些文件，计数仍在收敛，
-重跑 `work/qa/report.py` 可刷新）。复核口径：**不信任 harvester 的许可证声明**，逐个仓库重取证据。
+本次采集（2026-11-02）的复核口径：**不信任 harvester 的许可证声明**，逐个仓库重取证据。
+下列数字是那次采集的静态快照；原始记录与复核脚本不在本仓库内分发。
 
 ### 数量与许可证构成
 
@@ -70,19 +67,24 @@ corpus/
 | schema 合法 | 573（invalid 0） |
 | `accepted`（tier A/B） | 561 |
 | `substantive`（accepted 且有 ≥1 参数） | 520 |
-| `reference_only`（accepted 但无参数，仅参考） | 24 |
+| `reference_only`（accepted 但无参数，仅参考） | 41 |
 | family 数（按 substantive 计） | 183 |
 
 | Tier | 记录数 | 占比 | 是否允许 `code` |
 |---|---|---|---|
-| A（MIT/Apache/BSD/CC0/0BSD/Unlicense） | 377 | 68.3 % | 是 |
-| B（LGPL/MPL/CC-BY/CC-BY-SA） | 163 | 29.5 % | **否**（实测 0 条带 code） |
-| C（GPL/AGPL/NC/未声明） | 12 | 2.2 % | **否**（实测 0 条带 code） |
+| A（MIT/Apache/BSD/CC0/0BSD/Unlicense） | 379 | 66.1 % | 是 |
+| B（LGPL/MPL/CC-BY/CC-BY-SA） | 182 | 31.8 % | **否**（实测 0 条带 code） |
+| C（GPL/AGPL/NC/未声明） | 12 | 2.1 % | **否**（实测 0 条带 code） |
 
-来源构成：GitHub 416 · Printables 118 · Wikibooks 11 · 数据集站点 4 · Blender docs 1 ·
-ReadTheDocs 1 · 其他 1。共 26 个 GitHub 仓库。
+> 上表的权威来源是同目录的 `license_report.json`（`by_tier`），不是本文的历史草稿。
 
-主要来源（按记录数）：`BelfrySCAD/BOSL2` 169 · `revarbat/BOSL` 63 · `openscad/MCAD` 39 ·
+来源构成（`license_report.json:by_source_kind`）：GitHub 416 · Printables 139 ·
+Wikibooks 11 · 数据集站点 3 · Blender docs 1 · ReadTheDocs 1 · deep-geometry.github.io 1 ·
+其他站点 1。
+
+主要来源（按记录数，来自采集快照的逐仓库统计——原始记录未分发，这一行无法在
+公开 checkout 上重算，其余数字都可由 `license_report.json` / `coverage_report.json` 复核）：
+`BelfrySCAD/BOSL2` 169 · `revarbat/BOSL` 63 · `openscad/MCAD` 39 ·
 `curv3d/curv` 18 · `libfive/libfive` 13 · `alexadam/context-free-art` 11 ·
 `Irev-Dev/Round-Anything` 11 · `rcolyer/threads-scad` 10 · `deadsy/sdfx` 6 ·
 `elalish/manifold` 6 · `jscad/OpenJSCAD.org` 5。
@@ -111,24 +113,26 @@ GitHub API 的 `license` 字段**不可作为证据**：6 个仓库返回 `NOASS
 
 ### 未完成的核验（诚实声明）
 
-**118 条 `printables.com` 记录（50 CC-BY-4.0 / 44 CC-BY-SA-4.0 / 24 CC0-1.0）的许可证无法独立核验**：
-该站对自动抓取返回 HTTP 403，许可证字段由前端渲染。
+**`printables.com` 记录的许可证无法独立核验**（`license_report.json:unverified_claims.count`
+记 139 条，其中 Tier A 26 / Tier B 113）：该站对自动抓取返回 HTTP 403，许可证字段由前端渲染。
 这些记录**不含任何源代码、也不含模型文件**，仅为形状家族参考与署名元数据，
 最坏情况是署名字符串有误，而非再分发合规问题。
-对外分发前需人工复核这 118 个页面。详见 `license_report.json:unverified_claims`。
+对外分发前需人工复核这些页面。详见 `license_report.json:unverified_claims`（含 `reason` / `exposure` / `remediation`）。
 
 ### 覆盖（按 substantive 统计，不向上取整）
 
 **7 类达标 / 5 类不足。**
 
-达标：`primitive` 70/30 · `mechanical` 91/60 · `product` 40/40 · `pattern` 46/40 ·
+以 `coverage_report.json` 为准（下表与该文件 `categories[].substantive` 逐条一致）：
+
+达标：`primitive` 70/30 · `mechanical` 92/60 · `product` 41/40 · `pattern` 46/40 ·
 `assembly` 85/30 · `surface` 95/30 · `material_finish` 19/10。
 
-不足：**`architecture` 19/40（缺 21）** · **`organic` 12/30（缺 18）** ·
+不足：**`architecture` 20/40（缺 20）** · **`organic` 13/30（缺 17）** ·
 **`text` 9/20（缺 11）** · **`lattice` 13/20（缺 7）** · **`tolerance` 17/20（缺 3）**。
 
-> 汇总数字会掩盖问题：520 条 substantive 对 v1.2 的 300 条目标看似充裕，
-> 但 5 个类别单独看仍不足。`product`(40/40) 与 `tolerance`(17/20) 最贴线，最脆弱。
+> 汇总数字会掩盖问题：520 条 substantive 对 300 条目标看似充裕，
+> 但 5 个类别单独看仍不足。`product`(41/40) 与 `tolerance`(17/20) 最贴线，最脆弱。
 
 缺口根因（非投入不足，而是许可证与生态限制）：
 - `architecture`：开源 code-CAD 几乎不建模建筑；可用的干净来源只有 POV 室内场景与 CFDG 文法。
@@ -145,11 +149,10 @@ GitHub API 的 `license` 字段**不可作为证据**：6 个仓库返回 `NOASS
    accepted 之外，保留其参考价值。
 2. **variant surplus**：26 个 family 变体数 >5，共 204 条记录在 `notes` 标记
    `"variant surplus"`（保留计数，仅作去重信号）。
-3. `reference_only`（24 条，均为 Printables `kind=mesh`）不计入任何覆盖目标。
-4. 计数仍在变化：`harvest-fit` 仍在追加 `tolerance.jsonl` / `assembly.jsonl`。
+3. `reference_only`（41 条，主要是 Printables `kind=mesh`）不计入任何覆盖目标。
+4. 这些计数是快照，不再随采集推进更新。
 
-完整复核过程见 `work/reports/qa.md`；机器可读结果见 `license_report.json` 与
-`coverage_report.json`。
+机器可读结果见同目录的 `license_report.json` 与 `coverage_report.json`。
 
 ### 命名仲裁：`thread.*` 归入 `assembly`
 
@@ -182,7 +185,7 @@ GitHub API 的 `license` 字段**不可作为证据**：6 个仓库返回 `NOASS
    → family 作者不可把 bevel 当"免费"的美化步骤；给 bevel 留预算，或对浅角交线加保护角。
 2. **`pattern.honeycomb_panel` 在 builder 内改写 registry 的 `expected_genus`**（per-model 发布），
    因为 `Recipe.expected_genus` 是静态 int。多孔 family 的 genus 随孔数/行数变化，
-   **需要 genus 函数而不是常量** → 属已知架构限制，v1.2 内先按 per-model 发布处理。
+   **需要 genus 函数而不是常量** → 属已知架构限制，当前按 per-model 发布处理。
 3. **`lattice.gyroid_slab` 的 `expected_genus=39` 只在 3×2×1 cell 板件下成立**（已带 warn 约束）。
    更危险的是**单位混用**：隐式场值与米制距离比较时无提示，体积会在 **26188 ↔ 17963 mm³** 之间变化，
    而拓扑仍然合法 —— 即"verify 通过但体积错了 31%"。
