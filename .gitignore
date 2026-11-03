@@ -36,11 +36,15 @@ lib/.build-ok
 # The template is plugins/atta/.mcp.json.example.
 plugins/atta/.mcp.json
 
-# Third-party corpus material. Never shipped: the raw snapshots, the normalised
-# records and the rejections are other people's geometry under mixed licences.
-# Only corpus/bench/ and the two report JSONs are redistributed.
+# Third-party corpus material.
+# corpus/normalized/ IS shipped: it is the evidence behind the coverage and
+# reuse numbers, and its contents are redistributable -- the 352 records that
+# carry third-party source are entirely BSD-2-Clause / BSD-3-Clause / Apache-2.0
+# / MIT / CC0-1.0 (no copyleft), and the 7 NOASSERTION rows are dataset index
+# entries with no code and no geometry. Per-record provenance (url, commit,
+# licence) travels with every row; see corpus/README.md.
+# Still excluded: the raw snapshots and the rejected candidates.
 corpus/raw/
-corpus/normalized/
 corpus/rejected/
 corpus/nominations.jsonl
 
