@@ -1,0 +1,93 @@
+name: plugin package
+
+# Guards the one thing that decides whether `dsh plugin add <repo-url>` works:
+# DSH installs a Git URL by packing the REPOSITORY ROOT and then requiring the
+# installed package to declare `dsh.bundle`. The root package.json is only a
+# shim pointing into plugin/ — drop it, or drop an entry from `files`, and every
+# future user gets "这个包没有声明组合包，不能作为插件管理" again.
+#
+# Fast and hermetic by design: JS only, no Blender, no Python engine, no DSH
+# host. The Python suite (atta/) is covered separately.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packaging:
+    name: root shim + packed contents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Section 9b asserts the root shim and plugin/package.json never drift.
+      - name: Plugin smoke suite (no host, no network, no python)
+        run: node plugin/test/smoke.mjs
+
+      # Pack the repository root exactly as pnpm does for a Git dependency, and
+      # assert the bundle metadata and entry survived the `files` filter.
+      - name: Pack the repository root and inspect the tarball
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          npm pack --json --pack-destination "$RUNNER_TEMP/pack" > "$RUNNER_TEMP/pack.json"
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const [info] = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/pack.json", "utf8"));
+            const files = info.files.map((f) => f.path);
+            const need = [
+              "package.json",
+              "plugin/cordis.patch.yml",
+              "plugin/lib/index.js",
+              "plugin/skills/atta/SKILL.md",
+            ];
+            const missing = need.filter((p) => !files.includes(p));
+            if (missing.length) {
+              console.error("packed tarball is missing:", missing.join(", "));
+              console.error("present:", files.join(", "));
+              process.exit(1);
+            }
+            console.log("packed", files.length, "files; bundle metadata, entry and skill present");
+          '
+
+      # Install the packed root the way a consumer would, then re-read it from
+      # node_modules: this is the state DSH validates before enabling a bundle.
+      - name: Install the packed root and assert it is a DSH bundle
+        run: |
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          printf '{"name":"consumer","private":true}\n' > package.json
+          npm install --no-audit --no-fund --loglevel=error "$RUNNER_TEMP"/pack/*.tgz
+          node --input-type=module -e '
+            import { readFileSync, existsSync } from "node:fs";
+            import { createRequire } from "node:module";
+            import { join, dirname } from "node:path";
+            const require = createRequire(import.meta.url);
+            const pkgDir = dirname(require.resolve("@atta/dsh-atta/package.json"));
+            const manifest = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
+            const patch = manifest.dsh?.bundle?.patch;
+            const problems = [];
+            if (!patch) problems.push("installed package declares no dsh.bundle.patch");
+            else if (!existsSync(join(pkgDir, patch))) problems.push("bundle patch missing at " + patch);
+            if (!manifest.main || !existsSync(join(pkgDir, manifest.main))) {
+              problems.push("main entry missing at " + String(manifest.main));
+            }
+            if (problems.length) {
+              console.error(problems.join("\n"));
+              process.exit(1);
+            }
+            const text = readFileSync(join(pkgDir, patch), "utf8");
+            if (!text.includes(manifest.name)) {
+              console.error("bundle patch does not insert " + manifest.name);
+              process.exit(1);
+            }
+            console.log("installed " + manifest.name + "@" + manifest.version + " is an installable DSH bundle");
+          '

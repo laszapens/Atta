@@ -197,6 +197,24 @@ Careful with `scripts/run_bench.py`: its default `--out` is the shipped
 records are not distributed with this repository, so it only does something if
 you supply record files yourself.
 
+### The DSH plugin has two manifests, and they must agree
+
+`plugin/test/smoke.mjs` section 9b checks the pair, and CI runs it:
+
+- `plugin/package.json` — the plugin. Owns `lib/`, `skills/`, `cordis.patch.yml`.
+- `package.json` at the repository root — a **thin install shim**. DSH installs a
+  Git URL by packing the *repository root* and then requiring the installed
+  package to declare `dsh.bundle`; without the shim the checkout installs as an
+  empty placeholder and the plugin manager refuses it with
+  "这个包没有声明组合包，不能作为插件管理". The shim names the same package and
+  points `main` / `dsh.bundle.patch` into `plugin/`.
+
+When you bump the plugin version, bump **both**, keep the names equal, and keep
+the root `files[]` listing `plugin/lib`, `plugin/skills` and
+`plugin/cordis.patch.yml` — those are the only paths the packed tarball keeps.
+`dsh plugin add <repo-url>` (and the Web UI's Git repository field) must keep
+working on the plain repository URL.
+
 ## Style
 
 The repository is deliberately conservative and has no linter configuration —
