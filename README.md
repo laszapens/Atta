@@ -186,6 +186,25 @@ The plugin lives in [`plugin/`](plugin) and its skill in
 host's default interpreter cannot `import atta`, and `ATTA_ROOT` if the checkout
 moves.
 
+To install from Git, give the plugin manager the **repository root** URL:
+
+```bash
+dsh plugin --profile web add https://github.com/laszapens/Atta.git
+# in the Web UI: Plugins -> Add plugin -> Git repository, same URL
+```
+
+The root [`package.json`](package.json) is a thin install shim (the real package
+is [`plugin/package.json`](plugin/package.json)): it names `@atta/dsh-atta`,
+declares `dsh.bundle`, and points `main` / `dsh.bundle.patch` into `plugin/`.
+DSH requires the *installed* package to declare a bundle, so without that shim
+the checkout installs as an empty placeholder and the manager refuses it with
+`declares no dsh.bundle`. If you must install a subdirectory instead, a pnpm
+`path:` spec works on pnpm 9 and later — but nothing on the plugin side needs it:
+
+```bash
+dsh plugin --profile web add 'https://github.com/laszapens/Atta.git#path:/plugin'
+```
+
 ### ZCode
 
 Two options. The standalone MCP entry above is enough for the tools; the native
@@ -251,6 +270,7 @@ project directory to keep runs separate, and add `_atta/` to that project's
 | Build says `status: "repaired"` | A parameter was outside its bounds and was clamped. Read `applied_patches` / `issues` — the model you got is not the one you asked for. |
 | `deliver` returns `status: "blocked"` | `verify` did not pass. Fix the first entry in `verify.issues` (`fix` is populated) and rebuild; `degraded` needs an explicit `allow_degraded=true`. |
 | Host plugin cannot `import atta` | The host is using a different interpreter than your venv. Set `ATTA_PYTHON` to the venv's python, or `pip install -e .` with the interpreter the host uses. |
+| DSH: `插件安装失败 / 这个包没有声明组合包` (`declares no dsh.bundle`) | The Git URL resolved to a commit whose repository root has no `package.json`, so the installed dependency is a placeholder, not a bundle. Update to a commit that contains the root shim, or install `...Atta.git#path:/plugin`. |
 
 More detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the layers fit,
 [`docs/LLM_NATIVE.md`](docs/LLM_NATIVE.md) for the agent-facing design rules,
@@ -270,8 +290,9 @@ tests/           unit, contract and end-to-end tests
 examples/        mug and bracket specs plus a batch pipeline
 docs/            architecture, interfaces, LLM design notes, roadmap, coverage, quality
   assets/        identity mark (icon only)
-plugin/          DSH plugin
+plugin/          DSH plugin (the package: lib, skills, bundle patch)
 plugins/         ZCode plugin + local marketplace
+package.json     repository-root install shim for the DSH plugin (see DSH above)
 corpus/bench/    held-out generalization cases
 scripts/         maintainer tools (benchmark runner, corpus validator)
 ```

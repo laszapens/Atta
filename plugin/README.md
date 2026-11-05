@@ -34,12 +34,20 @@ python3 -c "import atta"                    # 已 pip install atta
 # 或：在 Atta 仓库里  python3 -m pip install -e .
 # 或：export ATTA_ROOT=/path/to/atta-checkout
 
-# 2) 把插件装进 profile（二选一）
+# 2) 把插件装进 profile（三选一）
 python3 -m atta.agent.install dsh --create   # 写 profile 的 dependency + bundle + symlink
 # 或：dsh plugin add /path/to/Atta/plugin
+# 或：dsh plugin add https://github.com/laszapens/Atta.git     <- 仓库根，不是 plugin/
 
 # 3) 重启 DSH，然后先调 atta_doctor
 ```
+
+> **Git 地址填仓库根。** DSH 判定"是不是插件"看的是**装进来的那个包**的
+> `package.json` 有没有 `dsh.bundle`。仓库根的 [`package.json`](../package.json)
+> 是安装壳：包名同为 `@atta/dsh-atta`，`main` 与 `dsh.bundle.patch` 都指到 `plugin/`。
+> 填 `...Atta.git#path:/plugin`（pnpm 9+ 的子目录写法）也行，但没必要；
+> 反过来，**别**指向没有根壳的旧提交——那样装进来的是 `@laszapens/atta@0.0.0`
+> 空占位包，插件管理器会拒绝："这个包没有声明组合包，不能作为插件管理"。
 
 ## 排障：工具不见了
 

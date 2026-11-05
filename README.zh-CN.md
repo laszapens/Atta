@@ -159,6 +159,24 @@ python3 -m atta.agent.install dsh --create   # 写入依赖 + bundle + 软链
 `python3 -m atta`，从不重新实现几何。如果宿主的默认解释器 `import atta` 失败，
 设 `ATTA_PYTHON`；checkout 挪了位置就设 `ATTA_ROOT`。
 
+从 Git 自动安装时，填**仓库根**地址：
+
+```bash
+dsh plugin --profile web add https://github.com/laszapens/Atta.git
+# Web 端：插件 → 添加插件 → Git 仓库，填同一个地址
+```
+
+根目录的 [`package.json`](package.json) 是一个很薄的安装壳（真正的包是
+[`plugin/package.json`](plugin/package.json)）：它声明包名 `@atta/dsh-atta`、
+声明 `dsh.bundle`，并把 `main` / `dsh.bundle.patch` 指向 `plugin/`。DSH 要求
+**装进来的那个包**自己声明组合包，所以没有这个壳时，仓库会被当成一个空占位包
+（`@laszapens/atta@0.0.0`），插件管理直接拒绝，报"这个包没有声明组合包"。
+如果一定要装子目录，pnpm 9 及以上的 `path:` 写法也行，但插件这边并不需要：
+
+```bash
+dsh plugin --profile web add 'https://github.com/laszapens/Atta.git#path:/plugin'
+```
+
 ### ZCode
 
 两种方式。上面的独立 MCP 条目已经够用；原生插件额外提供路由 skill 和本地市场。
@@ -217,6 +235,7 @@ Atta 在 `PATH` 上找 Blender；用 `ATTA_BLENDER=/path/to/blender` 固定某�
 | 建模返回 `status: "repaired"` | 有参数越界被夹紧了。看 `applied_patches` / `issues`——你拿到的模型不是你要求的那个。 |
 | `deliver` 返回 `status: "blocked"` | `verify` 没过。修 `verify.issues` 里的第一条（`fix` 已填好）再重建；`degraded` 需要显式 `allow_degraded=true`。 |
 | 宿主插件 `import atta` 失败 | 宿主用的解释器不是你的 venv。把 `ATTA_PYTHON` 指向 venv 的 python，或用宿主那个解释器 `pip install -e .`。 |
+| DSH：`插件安装失败 / 这个包没有声明组合包` | 这个 Git 地址解析到的那个提交，仓库根没有 `package.json`，于是装进来的是一个空占位包而不是组合包。更新到含根安装壳的提交，或改填 `...Atta.git#path:/plugin`。 |
 
 更多细节：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 讲分层怎么搭的，
 [`docs/LLM_NATIVE.md`](docs/LLM_NATIVE.md) 讲面向 agent 的设计规则，
@@ -235,8 +254,9 @@ tests/            单元、契约、端到端测试
 examples/         水杯和支架的 spec，外加一条批处理流水线
 docs/             架构、接口、LLM 设计说明、路线图、覆盖度、质量标准
   assets/         标识（纯图标）
-plugin/           DSH 插件
+plugin/           DSH 插件（真正的包：lib、skills、bundle patch）
 plugins/          ZCode 插件 + 本地市场
+package.json      仓库根的 DSH 安装壳（作用见上面的 DSH 一节）
 corpus/bench/     留出的泛化测试用例
 scripts/          维护工具（基准跑批、corpus 校验）
 ```

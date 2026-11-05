@@ -796,6 +796,61 @@ check('the two published cordis names are covered if peers are declared', (() =>
   return peers.includes('cordis') && peers.includes('@deepseek-ai/cordis')
 })(), JSON.stringify(Object.keys(PKG.peerDependencies || {})))
 
+// The repository-root shim: `dsh plugin add https://github.com/laszapens/Atta.git`
+// installs whatever `package.json` sits at the repo root. Without one, pnpm packs
+// an empty placeholder (@laszapens/atta@0.0.0) and the manager refuses the install
+// with "declares no dsh.bundle" — the failure a user actually hit. With one, that
+// root manifest must name the same package and point the bundle at plugin/.
+describe('9b. repository-root install shim (Git URL installs the repo root)')
+{
+  const ROOT_DIR = path.resolve(PLUGIN_DIR, '..')
+  const ROOT_PKG_FILE = path.join(ROOT_DIR, 'package.json')
+  if (!existsSync(ROOT_PKG_FILE)) {
+    // Installed from a subdirectory spec (…git#path:/plugin) or a registry: there
+    // is no repository root to check. Not a failure, but not coverage either.
+    skip('repository-root install shim', 'no package.json above plugin/ (subdirectory or registry install)')
+  } else {
+    const ROOT = JSON.parse(readFileSync(ROOT_PKG_FILE, 'utf8'))
+    check('root shim names the same package as plugin/', ROOT.name === PKG.name,
+      String(ROOT.name) + ' vs ' + String(PKG.name))
+    check('root shim version stays in sync with plugin/', ROOT.version === PKG.version,
+      String(ROOT.version) + ' vs ' + String(PKG.version))
+    check('root shim declares dsh.bundle.patch', Boolean(ROOT.dsh && ROOT.dsh.bundle && ROOT.dsh.bundle.patch))
+    check('root shim is private (only plugin/ is published to npm)', ROOT.private === true, String(ROOT.private))
+    check('root shim never declares dsh.client (would break Web boot)',
+      !(ROOT.dsh && ROOT.dsh.client))
+    const patchRel = ROOT.dsh && ROOT.dsh.bundle && ROOT.dsh.bundle.patch
+    check('root shim bundle patch stays inside the package root',
+      typeof patchRel === 'string' && !patchRel.split(/[\\/]/).includes('..'), String(patchRel))
+    const patchFile = typeof patchRel === 'string' ? path.join(ROOT_DIR, patchRel) : ''
+    check('root shim bundle patch exists in the shipped files',
+      Boolean(patchFile) && existsSync(patchFile), patchFile)
+    check('root shim entry file exists',
+      Boolean(ROOT.main) && existsSync(path.join(ROOT_DIR, ROOT.main)), String(ROOT.main))
+    check('root shim entry matches plugin/ main',
+      path.resolve(ROOT_DIR, String(ROOT.main)) === path.resolve(PLUGIN_DIR, String(PKG.main)),
+      String(ROOT.main) + ' vs ' + String(PKG.main))
+    if (patchFile && existsSync(patchFile)) {
+      const text = readFileSync(patchFile, 'utf8')
+      check('root shim patch inserts this very package',
+        new RegExp("name:\\s*['\"]?" + PKG.name.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&') + "['\"]?\\s*$", 'm').test(text),
+        text.trim().split('\n').slice(-3).join(' | '))
+      check('root shim patch uses the same file as plugin/', text === readFileSync(path.join(PLUGIN_DIR, 'cordis.patch.yml'), 'utf8'))
+    }
+    check('root shim files[] ships the plugin entry',
+      Array.isArray(ROOT.files) && ROOT.files.some((f) => f.replace(/\\/g, '/').startsWith('plugin/lib')),
+      JSON.stringify(ROOT.files))
+    check('root shim files[] ships the bundle patch',
+      Array.isArray(ROOT.files) && ROOT.files.some((f) => f.replace(/\\/g, '/').endsWith('cordis.patch.yml')),
+      JSON.stringify(ROOT.files))
+    check('root shim peerDependencies are all optional',
+      !ROOT.peerDependencies || Object.keys(ROOT.peerDependencies).every(
+        (id) => ROOT.peerDependenciesMeta && ROOT.peerDependenciesMeta[id] &&
+          ROOT.peerDependenciesMeta[id].optional === true,
+      ), JSON.stringify(ROOT.peerDependenciesMeta))
+  }
+}
+
 // The client-half trap: declaring dsh.client WITHOUT exports["./client"] makes
 // the host throw during web boot (dsh-client-modules resolveMeta), which breaks
 // the whole Web UI — unrelated to this plugin's tools.

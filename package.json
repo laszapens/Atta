@@ -1,0 +1,73 @@
+{
+  "name": "@atta/dsh-atta",
+  "version": "1.2.0",
+  "description": "Atta v1.2 — DSH headless modeling plugin: recipes / Spec v3 / assemblies -> numpy + Blender -> measured facts -> three-state verify -> GLB/OBJ/STL/BLEND (+STEP subset). Ten atta_* tools, no GUI.",
+  "//why": "Repository-root install shim, NOT the plugin package. The plugin lives in plugin/ (that manifest owns lib, skills and the bundle patch). DSH's plugin manager installs a git URL and then requires the INSTALLED package to declare dsh.bundle; a repo root without package.json installs as a placeholder (@laszapens/atta@0.0.0) and is refused with 'not-a-bundle' — '这个包没有声明组合包，不能作为插件管理'. This shim names the same package and points dsh.bundle/main at plugin/, so `dsh plugin add https://github.com/laszapens/Atta.git` works on the plain repo URL. Keep name/version in sync with plugin/package.json; plugin/test/smoke.mjs asserts it.",
+  "//private": "true so only plugin/ is ever published to npm (npm publish from the repo root must not push a second copy of the same name@version). Git installs still work: private only blocks publishing.",
+  "private": true,
+  "type": "module",
+  "main": "./plugin/lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./plugin/lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "plugin/lib",
+    "plugin/test",
+    "plugin/skills",
+    "plugin/cordis.patch.yml",
+    "plugin/package.json",
+    "plugin/README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./plugin/cordis.patch.yml"
+    }
+  },
+  "//dsh.client": "Deliberately ABSENT, same reason as plugin/package.json: declaring dsh.client makes dsh-client-modules demand exports[\"./client\"] and throw MissingClientBundleError during Web boot. Atta has no browser half.",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0-rc <5",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
+    "@deepseek-ai/schemastery": ">=3.0.0",
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": ">=3.0.0"
+  },
+  "//peerDependenciesMeta": "Same optional-peer set as plugin/package.json: the host may ship cordis/schemastery under either the scoped or the unscoped name, and the plugin resolves them at runtime, degrading to atta_plugin_status instead of failing to import.",
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "cordis": {
+      "optional": true
+    },
+    "schemastery": {
+      "optional": true
+    }
+  },
+  "sideEffects": true,
+  "keywords": [
+    "cad",
+    "parametric",
+    "blender",
+    "llm",
+    "mcp",
+    "dsh",
+    "3d-printing",
+    "geometry"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Atta contributors"
+  }
+}
