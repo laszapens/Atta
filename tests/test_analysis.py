@@ -496,6 +496,25 @@ def test_verify_never_crashes_on_malformed_constraints():
         assert any("malformed" in (c["message"] or "") for c in bad), cons
 
 
+@pytest.mark.parametrize("key", [
+    "silhouette_iou", "clearance", "interference", "interfaces", "holes",
+])
+def test_verify_rejects_malformed_structured_constraint_containers(key):
+    """A typo in a structured constraint must not disappear as an empty gate."""
+    m = cube(100.0)
+    parts = {"a": m, "b": m}
+    for bad_value in ("bad", 17, True, None, [{"a": "a"}, "bad-row"]):
+        constraints = {key: bad_value}
+        result = verify.verify(m, level="strict", constraints=constraints,
+                                parts=parts)
+        assert result["verdict"] == "fail", (key, bad_value, result)
+        issues = [row for row in result["issues"]
+                  if row["id"] == key or row["id"].startswith(key + ".")]
+        assert issues, (key, bad_value, result["issues"])
+        assert any(row["severity"] == "error" and row["fix"] for row in issues)
+        assert any("malformed" in (row["message"] or "") for row in issues)
+
+
 def test_verify_treats_boolean_and_nonfinite_constraints_as_malformed():
     """``float(True)`` is 1.0 and ``float('nan')`` succeeds -- both are lies."""
     m = cube(100.0)
