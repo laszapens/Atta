@@ -142,13 +142,40 @@ def _bound(checks, cid, raw, fix):
 
 
 def _rows(value):
-    if value is None:
-        return []
+    """Return row dictionaries for already-validated internal callers."""
     if isinstance(value, dict):
         return [value]
     if isinstance(value, (list, tuple)):
-        return [x for x in value if isinstance(x, dict)]
+        return list(value)
     return []
+
+
+def _checked_rows(checks, cid, value):
+    """Validate a structured constraint container before consuming its rows.
+
+    A malformed JSON value must not disappear as an empty constraint: doing so
+    can turn a typo into a false ``pass``.  Return ``None`` after recording an
+    error-level check; valid empty lists remain valid and return ``[]``.
+    """
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        bad = [i for i, row in enumerate(value) if not isinstance(row, dict)]
+        if bad:
+            _malformed(
+                checks, cid,
+                _Malformed("row %s is not an object" % bad[0]),
+                "pass one object or a list of objects for %s" % cid,
+            )
+            return None
+        return list(value)
+    _malformed(
+        checks, cid,
+        _Malformed("expected an object or list of objects, got %s"
+                   % type(value).__name__),
+        "pass one object or a list of objects for %s" % cid,
+    )
+    return None
 
 
 def _lookup(parts, name):
@@ -184,8 +211,11 @@ def _silhouette_checks(checks, mesh, spec, severity):
     """
     from . import form as _form
 
-    for i, row in enumerate(_rows(spec)):
-        cid = "silhouette_iou" if len(_rows(spec)) == 1 else "silhouette_iou.%d" % i
+    rows = _checked_rows(checks, "silhouette_iou", spec)
+    if rows is None:
+        return
+    for i, row in enumerate(rows):
+        cid = "silhouette_iou" if len(rows) == 1 else "silhouette_iou.%d" % i
         view = str(row.get("view") or "front").lower()
         need = row.get("min_iou", 0.90)
         try:
@@ -541,6 +571,16 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
     curv = metrics.get("curvature")
     bbox = metrics["bbox_mm"]
 
+    # Validate structured containers even at ``basic`` level.  Expensive
+    # geometry checks may be skipped, but malformed JSON constraints must never
+    # vanish into an empty row list and produce a false pass.
+    structured_rows = {
+        key: _checked_rows(checks, key, cons[key])
+        for key in ("silhouette_iou", "clearance", "interference",
+                    "interfaces", "holes")
+        if key in cons
+    }
+
     try:
         # -------------------------------------------- dimensional gates
         # Cheap constraints run at every level.  v1.1 wrapped this whole block
@@ -727,14 +767,15 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                 _skip(checks, "silhouette_iou", level,
                       "silhouette comparison needs rasterised views")
             else:
-                _silhouette_checks(checks, mesh, cons["silhouette_iou"],
-                                   quality_sev)
+                rows = structured_rows.get("silhouette_iou")
+                if rows is not None:
+                    _silhouette_checks(checks, mesh, rows, quality_sev)
 
         # -------------------------------------------- pair gates
         if cons.get("clearance") and not gates:
             _skip(checks, "clearance", level, "clearance needs mesh distance queries")
         for i, row in enumerate([] if not gates
-                                else _rows(cons.get("clearance"))):
+                                else (structured_rows.get("clearance") or [])):
             a = row.get("a")
             b = row.get("b")
             need_ok, need = _bound(checks, "clearance.%d" % i,
@@ -766,7 +807,7 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
             _skip(checks, "interference", level,
                   "interference needs a boolean intersection")
         for i, row in enumerate([] if not gates
-                                else _rows(cons.get("interference"))):
+                                else (structured_rows.get("interference") or [])):
             a = row.get("a")
             b = row.get("b")
             cap_ok, cap = _bound(checks, "interference.%d" % i,
@@ -799,7 +840,7 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
             _skip(checks, "interface", level,
                   "interface needs a boolean intersection")
         for i, row in enumerate([] if not gates
-                                else _rows(cons.get("interfaces"))):
+                                else (structured_rows.get("interfaces") or [])):
             a = row.get("a")
             b = row.get("b")
             cap_ok, cap = _bound(checks, "interface.%d" % i,
@@ -835,7 +876,7 @@ def verify(mesh: M.Mesh, *, constraints=None, expected_genus=None,
                       "hole detection needs mid-sections")
             else:
                 actual = _detect_holes(mesh)
-                for i, row in enumerate(_rows(cons["holes"])):
+                for i, row in enumerate(structured_rows.get("holes") or []):
                     cid = "holes.%d" % i
                     diameter = row.get("diameter", row.get("d"))
                     tol_ok, tol = _bound(checks, cid,
