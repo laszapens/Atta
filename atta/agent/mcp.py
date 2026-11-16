@@ -105,9 +105,13 @@ def process_request(req):
 
     req_id = req.get("id")
     method = req.get("method")
-    params = req.get("params") or {}
-    if not isinstance(params, dict):
-        params = {}
+
+    # JSON-RPC 2.0 §4.1: a notification (a request without ``id``) never gets a
+    # response -- not even for a malformed method or params.  This has to be
+    # decided *before* the validation below, otherwise a malformed notification
+    # would put an unsolicited error on the wire and desynchronise clients.
+    if "id" not in req:
+        return None
 
     if req.get("jsonrpc") != "2.0":
         return {
@@ -116,11 +120,28 @@ def process_request(req):
             "error": {"code": -32600, "message": "invalid request: jsonrpc must be '2.0'"},
         }
 
-    is_notification = "id" not in req
-    if is_notification:
-        # JSON-RPC notifications never receive a response, including
-        # notifications/initialized and notifications/cancelled.
-        return None
+    # JSON-RPC dispatch requires a non-empty method string.  Letting a missing
+    # method fall through to -32601 makes a malformed request look like a
+    # legitimate unknown method and is especially confusing for clients.
+    if not isinstance(method, str) or not method:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32600, "message": "invalid request: method must be a non-empty string"},
+        }
+
+    # The MCP method surface uses JSON objects for params.  Do not coerce an
+    # array/string/null into {}: that silently changes the request and can turn
+    # invalid client data into a successful call.  ``params`` absent or null is
+    # equivalent per §4.2 and already handled by ``or {}`` below.
+    params = req.get("params")
+    if params is not None and not isinstance(params, dict):
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "invalid params: expected object"},
+        }
+    params = params or {}
 
     if method == "initialize":
         return {"jsonrpc": "2.0", "id": req_id, "result": _initialize(params)}
@@ -156,6 +177,9 @@ def _serve_line(line: str, executor: ThreadPoolExecutor, futures: list) -> None:
         return
 
     if isinstance(req, list):
+        if not req:
+            _err(None, -32600, "invalid request: empty batch")
+            return
         responses = []
         for item in req:
             try:
