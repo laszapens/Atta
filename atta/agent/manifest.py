@@ -7,6 +7,8 @@ list to maintain.
 
 from __future__ import annotations
 
+import copy
+
 from atta.version import VERSION
 
 from .tools import DEFAULT_TIMEOUTS, TOOLS, tool_schemas
@@ -19,7 +21,7 @@ def _openai() -> list[dict]:
             "function": {
                 "name": tool["name"],
                 "description": tool["description"],
-                "parameters": tool["inputSchema"],
+                "parameters": copy.deepcopy(tool["inputSchema"]),
             },
         }
         for tool in TOOLS
@@ -31,7 +33,7 @@ def _anthropic() -> list[dict]:
         {
             "name": tool["name"],
             "description": tool["description"],
-            "input_schema": tool["inputSchema"],
+            "input_schema": copy.deepcopy(tool["inputSchema"]),
         }
         for tool in TOOLS
     ]
@@ -46,7 +48,7 @@ def _generic() -> dict:
             {
                 "name": tool["name"],
                 "description": tool["description"],
-                "input_schema": tool["inputSchema"],
+                "input_schema": copy.deepcopy(tool["inputSchema"]),
                 "long": tool["name"] in DEFAULT_TIMEOUTS,
                 "timeout_s": DEFAULT_TIMEOUTS.get(tool["name"]),
             }
