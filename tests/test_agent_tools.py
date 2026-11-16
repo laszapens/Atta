@@ -225,3 +225,24 @@ def test_manifests_have_every_tool():
     assert len(generic["tools"]) == 12
     with pytest.raises(ValueError):
         manifest("bogus")
+
+
+def test_manifest_schema_results_are_isolated_from_global_tool_definitions():
+    """A caller must not mutate the process-wide schema registry via a manifest."""
+    from atta.agent import manifest
+
+    baseline = json.loads(json.dumps(tools.TOOLS[0]["inputSchema"]))
+    for fmt, key in (("openai", "parameters"), ("anthropic", "input_schema"),
+                     ("mcp", "inputSchema"), ("generic", "input_schema")):
+        value = manifest(fmt)
+        schema = value[0]["function"][key] if fmt == "openai" else (
+            value[0][key] if fmt in {"anthropic", "mcp"} else value["tools"][0][key])
+        schema["properties"].clear()
+        assert tools.TOOLS[0]["inputSchema"] == baseline
+        assert tools.tool_schemas()[0]["inputSchema"] == baseline
+        assert manifest(fmt) != value
+
+    schemas = tools.tool_schemas()
+    schemas[0]["inputSchema"]["properties"].clear()
+    assert tools.TOOLS[0]["inputSchema"] == baseline
+    assert tools.tool_schemas()[0]["inputSchema"] == baseline

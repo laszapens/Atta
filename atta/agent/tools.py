@@ -21,6 +21,7 @@ Failures are values.  A traceback never crosses a protocol boundary.
 from __future__ import annotations
 
 import base64
+import copy
 import importlib
 import threading
 import time
@@ -1131,7 +1132,7 @@ def tool_schemas() -> list[dict]:
         {
             "name": t["name"],
             "description": t["description"],
-            "inputSchema": t["inputSchema"],
+            "inputSchema": copy.deepcopy(t["inputSchema"]),
         }
         for t in TOOLS
     ]
