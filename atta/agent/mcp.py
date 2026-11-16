@@ -106,6 +106,13 @@ def process_request(req):
     req_id = req.get("id")
     method = req.get("method")
 
+    # JSON-RPC 2.0 §4.1: a notification (a request without ``id``) never gets a
+    # response -- not even for a malformed method or params.  This has to be
+    # decided *before* the validation below, otherwise a malformed notification
+    # would put an unsolicited error on the wire and desynchronise clients.
+    if "id" not in req:
+        return None
+
     if req.get("jsonrpc") != "2.0":
         return {
             "jsonrpc": "2.0",
@@ -125,20 +132,16 @@ def process_request(req):
 
     # The MCP method surface uses JSON objects for params.  Do not coerce an
     # array/string/null into {}: that silently changes the request and can turn
-    # invalid client data into a successful call.
-    if "params" in req and not isinstance(req["params"], dict):
+    # invalid client data into a successful call.  ``params`` absent or null is
+    # equivalent per §4.2 and already handled by ``or {}`` below.
+    params = req.get("params")
+    if params is not None and not isinstance(params, dict):
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "error": {"code": -32602, "message": "invalid params: expected object"},
         }
-    params = req.get("params") or {}
-
-    is_notification = "id" not in req
-    if is_notification:
-        # JSON-RPC notifications never receive a response, including
-        # notifications/initialized and notifications/cancelled.
-        return None
+    params = params or {}
 
     if method == "initialize":
         return {"jsonrpc": "2.0", "id": req_id, "result": _initialize(params)}
