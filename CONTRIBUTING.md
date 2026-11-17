@@ -1,14 +1,14 @@
 # Contributing to Atta
 
-Atta is a parametric CAD kernel whose primary user is a language model. That
-constrains the design: the tool surface stays small, every failure must be
-actionable, and a model is never "finished" without a receipt that proves it.
+Atta is a parametric CAD kernel that's mostly used by LLM agents, which shapes a
+few decisions: keep the number of tools small, make every error say how to fix
+it, and don't call a model finished until `verify` has produced a receipt.
 
-## The one rule
+## The main rule
 
-Never claim a model is done without an `atta_verify` receipt whose
-`verdict == "pass"`. `degraded` is not `pass`. Assumptions in a spec are design
-defaults, never measurements.
+A model counts as done only when it has an `atta_verify` receipt with
+`verdict == "pass"`. `degraded` doesn't count. Values assumed in a spec are
+design defaults, not measurements.
 
 ## Development setup
 
@@ -44,7 +44,7 @@ The full suite takes about four minutes, mostly in the two solver tests.
 | B-rep / STEP | `atta/brep.py` |
 | image analysis | `atta/vision.py` |
 | Blender worker protocol | `atta/blender/worker.py` |
-| the public tool surface | `atta/agent/tools.py` — keep it at ten tools |
+| the public tool surface | `atta/agent/tools.py` (currently twelve tools; please don't add more lightly) |
 
 ## Adding a recipe
 

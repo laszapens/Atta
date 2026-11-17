@@ -1,8 +1,7 @@
 # @atta/dsh-atta
 
-Atta 1.2.2beta 的 DSH 无头建模插件。它不复制几何内核，只把 Atta 的十二个几何动词包成
-DSH 工具（十二个 `atta_*`）。几何真值全部来自
-Atta 引擎：
+Atta 1.2.2beta 的 DSH 插件（无头建模）。插件本身不包含几何内核，只是把 Atta 的 12 个命令
+包装成 DSH 工具（`atta_*`），所有几何计算都交给 Atta 引擎：
 
 - recipe / Spec v3 / feature graph -> numpy geometry -> Blender finish
 - 结构事实：bbox、体积、质心、拓扑、壁厚、曲率、ray/silhouette/section/clearance 探针
@@ -12,17 +11,17 @@ Atta 引擎：
 - 视觉：按零件材质、摄影棚灯光、微距 focus、normal/depth/id/curvature/deviation 通道
 - 外观（贴图/相机）由独立的 basid 程序负责；Atta 只导出几何 GLB
 
-## 设计上的三条硬规则（为什么代码长这样）
+## 几条实现约定
 
-1. **载入期绝不抛异常。** 模块在宿主 import 时抛错 = 十个工具整体消失，而宿主只回
-   一句 `failed to import`，真因被吞掉。所以所有「可能解析不到」的东西（宿主的
+1. **加载时不抛异常。** 模块在宿主 import 时一旦抛错，所有工具都会消失，宿主只报一句
+   `failed to import`，看不到真正原因。所以所有「可能解析不到」的东西（宿主的
    `defineTool`、schemastery、Python 解释器、仓库根）都走"返回结果并记录试过什么"
    的函数。解析失败就**降级**：只注册一个 `atta_plugin_status` 工具，说明原因与修法，
    插件本身仍然加载。
-2. **所有工具返回值只过一个消毒出口。** 宿主用比 `JSON.stringify` 严格得多的
+2. **所有返回值走同一个 sanitize 出口。** 宿主用比 `JSON.stringify` 严格得多的
    walker 校验返回值：一个 `undefined`、`NaN`、`Infinity`、`-0`、`Date`、`Map`、
-   循环引用或类实例，就会让整条回执被判 `tool returned invalid output` —— 活干完了，
-   回执被拒收。所以出口统一 sanitize，并把每一处改动写进回执（不静默）。
+   循环引用或类实例，整个返回值就会被判为 `tool returned invalid output`，即使工具
+   本身已经执行成功。所以返回前统一做 sanitize，并把改动过的地方记在回执里。
 3. **工具名与全局状态都带命名空间。** 只用 `atta_*`，不写 `globalThis`。这样同一个
    profile 里可以同时装 `dsh-blender-plugin`（它的 `blender_*` 工具）而互不干扰。
 
@@ -48,7 +47,7 @@ python3 -m atta.agent.install dsh --create   # 写 profile 的 dependency + bund
 > `package.json` 有没有 `dsh.bundle`。仓库根的 [`package.json`](../package.json)
 > 是安装壳：包名同为 `@atta/dsh-atta`，`main` 与 `dsh.bundle.patch` 都指到 `plugin/`。
 > 填 `...Atta.git#path:/plugin`（pnpm 9+ 的子目录写法）也行，但没必要；
-> 反过来，**别**指向没有根壳的旧提交——那样装进来的是 `@laszapens/atta@0.0.0`
+> 但**不要**指向没有根目录 package.json 的旧提交，那样装进来的是 `@laszapens/atta@0.0.0`
 > 空占位包，插件管理器会拒绝："这个包没有声明组合包，不能作为插件管理"。
 
 ## 排障：工具不见了
@@ -63,8 +62,8 @@ python3 -m atta.agent.install dsh --create   # 写 profile 的 dependency + bund
 | 工具能调，但结果是 `python_missing` | 解释器 pin 错了 | 修 `ATTA_PYTHON`，或不设它让插件自动探测 |
 
 解释器探测顺序：`config.python` → `ATTA_PYTHON` → 仓库内 `.venv`/`venv`/`env` →
-`python3` → `python`（Windows 另加 `py -3`）。**显式 pin 的（前两项）如果失败不会
-回退** —— 静默换一个环境跑几何比报错更糟。
+`python3` → `python`（Windows 另加 `py -3`）。**显式指定的（前两项）失败时不会回退**，
+因为悄悄换一个环境跑出来的结果可能不对，不如直接报错。
 
 ## 工具
 
